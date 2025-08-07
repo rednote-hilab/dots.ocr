@@ -171,6 +171,8 @@ def layoutjson2md(image: Image.Image, cells: list, text_key: str = 'text', no_pa
             text_items.append(f"![]({image_base64})")
         elif cell['category'] == 'Formula':
             text_items.append(get_formula_in_markdown(text))
+        elif cell['category'] == 'List-item':
+            text_items.append(text.strip())
         else:            
             text = clean_text(text)
             text_items.append(f"{text}")
