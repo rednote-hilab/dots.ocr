@@ -999,8 +999,18 @@ git clone https://github.com/rednote-hilab/dots.ocr.git
 cd dots.ocr
 
 # Install pytorch, see https://pytorch.org/get-started/previous-versions/ for your cuda version
+# cuda 12.8
 pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+# cuda 11.8
+# pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu11.8
+
+# Install vllm with cuda 11.8 using local, default cuda 12.8
+# pip install vllm==0.9.1 --extra-index-url https://download.pytorch.org/whl/cu118
+
+# Install other packages
 pip install -e .
+
+
 ```
 
 If you have trouble with the installation, try our [Docker Image](https://hub.docker.com/r/rednotehilab/dots.ocr) for an easier setup, and follow these steps:
