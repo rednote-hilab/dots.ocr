@@ -1007,7 +1007,13 @@ pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https
 # Install vllm with cuda 11.8 using local, default cuda 12.8
 # pip install vllm==0.9.1 --extra-index-url https://download.pytorch.org/whl/cu118
 
-# Install other packages
+# Install vllm=0.10.0 with cuda 12.8, flash_attn=2.8.2 with cuda 12.8, NVIDIA-5090 has been passed
+# see https://github.com/Dao-AILab/flash-attention/releases for flash_attn and https://github.com/vllm-project/vllm/releases for vllm
+pip install torch==2.7.1 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+pip install vllm==0.10.0 --extra-index-url https://download.pytorch.org/whl/cu128
+pip install https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.2/flash_attn-2.8.2+cu12torch2.7cxx11abiFALSE-cp312-cp312-linux_x86_64.whl
+
+# Install other packages, the previously installed packages need to be commented out..
 pip install -e .
 
 
