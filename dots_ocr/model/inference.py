@@ -5,11 +5,10 @@ import math
 from PIL import Image
 import requests
 from dots_ocr.utils.image_utils import PILimage_to_base64
-from openai import OpenAI
+from openai import AsyncOpenAI
 import os
 
-
-def inference_with_vllm(
+async def inference_with_vllm(
         image,
         prompt, 
         ip="localhost",
@@ -21,7 +20,7 @@ def inference_with_vllm(
         ):
     
     addr = f"http://{ip}:{port}/v1"
-    client = OpenAI(api_key="{}".format(os.environ.get("API_KEY", "0")), base_url=addr)
+    client = AsyncOpenAI(api_key="{}".format(os.environ.get("API_KEY", "0")), base_url=addr)
     messages = []
     messages.append(
         {
@@ -36,7 +35,7 @@ def inference_with_vllm(
         }
     )
     try:
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             messages=messages, 
             model=model_name, 
             max_completion_tokens=max_completion_tokens,
