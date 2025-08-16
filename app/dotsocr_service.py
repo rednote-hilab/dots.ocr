@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response
+from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response, StreamingResponse
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import os
@@ -80,9 +80,8 @@ async def parse(
     elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
         is_s3 = False
     else:
-        raise RuntimeError(f"must use s3 or oss. {str(e)}") from e
+        raise RuntimeError("Input and output paths must both be s3:// or oss://")
     try:
-
         def parse_s3_path(s3_path: str):
             if is_s3:
                 s3_path = s3_path.replace("s3://", "")
@@ -317,6 +316,150 @@ async def parse_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+#------------------------------------stream-----------------------------------------#
+
+async def stream_page_by_page_upload_generator(
+    input_s3_path: str,
+    output_s3_path: str,
+    prompt_mode: str,
+):
+    """
+    Parses a PDF file, and streams the output files for each page directly to S3/OSS
+    as they are completed.
+    """
+    
+    is_s3 = False
+    if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
+        is_s3 = True
+    elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
+        is_s3 = False
+    else:
+        raise RuntimeError("Input and output paths must both be s3:// or oss://")
+    
+    try:
+        def parse_s3_path(s3_path: str):
+            if is_s3:
+                s3_path = s3_path.replace("s3://", "")
+            else:
+                s3_path = s3_path.replace("oss://", "")
+            bucket, *key_parts = s3_path.split("/")
+            return bucket, "/".join(key_parts)
+
+        file_bucket, file_key = parse_s3_path(input_s3_path)
+        input_file_path = INPUT_DIR / file_bucket / file_key
+        input_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        async with GLOBAL_LOCK_MANAGER:
+            if input_s3_path not in PROCESSING_INPUT_LOCKS:
+                PROCESSING_INPUT_LOCKS[input_s3_path] = asyncio.Lock()
+            if output_s3_path not in PROCESSING_OUTPUT_LOCKS:
+                PROCESSING_OUTPUT_LOCKS[output_s3_path] = asyncio.Lock()
+        input_lock = PROCESSING_INPUT_LOCKS[input_s3_path]
+        output_lock = PROCESSING_OUTPUT_LOCKS[output_s3_path]
+
+        async with input_lock:
+            async with output_lock:
+                # download file from S3
+                try:
+                    if is_s3:
+                        s3_client.download_file(
+                            Bucket=file_bucket,
+                            Key=file_key,
+                            Filename=str(input_file_path)
+                        )
+                    else:
+                        s3_oss_client.download_file(
+                            Bucket=file_bucket,
+                            Key=file_key,
+                            Filename=str(input_file_path)
+                        )
+                    logging.info(f"download from s3/oss successfully: {input_s3_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
+
+
+            output_bucket, output_key_prefix = parse_s3_path(output_s3_path)
+            local_save_dir = OUTPUT_DIR / output_bucket / output_key_prefix
+            local_save_dir.mkdir(parents=True, exist_ok=True)
+            
+            async def upload_file_and_cleanup(local_path, bucket, key):
+                if not local_path or not os.path.exists(local_path):
+                    return None
+                try:
+                    if is_s3:
+                        s3_client.upload_file(Bucket=bucket, Key=key, Filename=str(local_path))
+                    else:
+                        s3_oss_client.upload_file(Bucket=bucket, Key=key, Filename=str(local_path))
+                    s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
+                    logging.info(f"Successfully uploaded {local_path} to {s3_full_path}")
+                    os.remove(local_path)
+                    return s3_full_path
+                except Exception as e:
+                    logging.error(f"Failed to upload {local_path} to s3://{bucket}/{key}: {e}")
+                    return None
+
+            async for result in dots_parser.parse_pdf_stream(
+                input_path=input_file_path,
+                filename=Path(input_file_path).stem,
+                prompt_mode=prompt_mode,
+                save_dir=local_save_dir
+            ):
+                page_no = result.get('page_no', -1)
+                
+                page_upload_tasks = []
+                paths_to_upload = {
+                    'md': result.get('md_content_path'),
+                    'md_nohf': result.get('md_content_nohf_path'),
+                    'json': result.get('layout_info_path')
+                }
+
+                for file_type, local_path in paths_to_upload.items():
+                    if local_path:
+                        file_name = Path(local_path).name
+                        s3_key = f"{output_key_prefix}/{file_name}"
+                        task = asyncio.create_task(
+                            upload_file_and_cleanup(local_path, output_bucket, s3_key)
+                        )
+                        page_upload_tasks.append(task)
+                
+                # ** 正确的做法: 只等待当前页面的上传任务完成 **
+                uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)
+                
+                # 准备要流式返回给客户端的 JSON 数据
+                page_response = {
+                    "status": "success",
+                    "page_no": page_no,
+                    "uploaded_files": [path for path in uploaded_paths_for_page if path]
+                }
+                
+                # ** Yield 结果，这将作为一块数据发送给客户端 **
+                yield json.dumps(page_response) + "\n"
+
+    except Exception as e:
+        
+        error_msg = json.dumps({"status": "error", "detail": str(e)})
+        yield error_msg + "\n"
+
+
+
+@app.post("/parse/pdf_stream")
+async def parse_pdf_stream(
+    input_s3_path: str = Form(...),
+    output_s3_path: str = Form(...),
+    prompt_mode: str = "prompt_layout_all_en",
+):
+    if not input_s3_path.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400, detail="Invalid file format. This endpoint only supports .pdf")
+
+    generator = stream_page_by_page_upload_generator(
+        input_s3_path=input_s3_path,
+        output_s3_path=output_s3_path,
+        prompt_mode=prompt_mode,
+    )
+    return StreamingResponse(generator, media_type="application/x-ndjson")
+
+#---------------------------directly send file to parser---------------------------
 
 @app.post("/directly_parse/image")
 async def parse_image_old(
