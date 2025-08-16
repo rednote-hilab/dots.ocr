@@ -1,5 +1,6 @@
-from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response, StreamingResponse
-from fastapi.responses import JSONResponse
+
+from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response
+from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 import os
 from pathlib import Path
@@ -422,17 +423,14 @@ async def stream_page_by_page_upload_generator(
                         )
                         page_upload_tasks.append(task)
                 
-                # ** 正确的做法: 只等待当前页面的上传任务完成 **
                 uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)
                 
-                # 准备要流式返回给客户端的 JSON 数据
                 page_response = {
                     "status": "success",
                     "page_no": page_no,
                     "uploaded_files": [path for path in uploaded_paths_for_page if path]
                 }
                 
-                # ** Yield 结果，这将作为一块数据发送给客户端 **
                 yield json.dumps(page_response) + "\n"
 
     except Exception as e:
