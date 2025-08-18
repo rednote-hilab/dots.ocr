@@ -164,8 +164,26 @@ class DotsOCRParser:
         prompt = self.get_prompt(prompt_mode, bbox, origin_image, image, min_pixels=min_pixels, max_pixels=max_pixels)
         if self.use_hf:
             response = self._inference_with_hf(image, prompt)
+            for _ in range(3):
+                try:
+                    data = json.loads(response)
+                    if not isinstance(data, list):
+                        raise json.JSONDecodeError
+                    break
+                except json.JSONDecodeError as _:
+                    image = image.resize((int(image.width*0.95), int(image.height*0.95)))
+                    response = self._inference_with_hf(image, prompt)
         else:
             response = self._inference_with_vllm(image, prompt)
+            for _ in range(3):
+                try:
+                    data = json.loads(response)
+                    if not isinstance(data, list):
+                        raise json.JSONDecodeError
+                    break
+                except json.JSONDecodeError as _:
+                    image = image.resize((int(image.width*0.95), int(image.height*0.95)))
+                    response = self._inference_with_vllm(image, prompt)
         result = {'page_no': page_idx,
             "input_height": input_height,
             "input_width": input_width
