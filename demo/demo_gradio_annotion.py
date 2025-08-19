@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from PIL import Image
 import requests
+import argparse
 from gradio_image_annotation import image_annotator
 
 # Local utility imports
@@ -661,9 +662,16 @@ def create_gradio_interface():
 
 # ==================== Main Program ====================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run dots.ocr Gradio annotation demo")
+    parser.add_argument("port", nargs="?", type=int, help="Port to run Gradio on (default: 7861)")
+    parser.add_argument("--share", action="store_true", help="Enable Gradio share URL (default: False)")
+    args = parser.parse_args()
+
+    port = args.port if args.port is not None else 7861
     demo = create_gradio_interface()
     demo.queue().launch(
         server_name="0.0.0.0", 
-        server_port=7861,  # Use a different port to avoid conflicts
-        debug=True
+        server_port=port,  # Default different port to avoid conflicts
+        debug=True,
+        share=args.share
     )

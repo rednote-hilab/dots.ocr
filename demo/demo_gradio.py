@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from PIL import Image
 import requests
+import argparse
 import shutil # Import shutil for cleanup
 
 # Local tool imports
@@ -724,11 +725,17 @@ def create_gradio_interface():
 
 # ==================== Main Program ====================
 if __name__ == "__main__":
-    import sys
-    port = int(sys.argv[1])
+    parser = argparse.ArgumentParser(description="Run dots.ocr Gradio demo")
+    # Port can be provided positionally for backward compatibility, or omitted to use default 7860
+    parser.add_argument("port", nargs="?", type=int, help="Port to run Gradio on (default: 7860)")
+    parser.add_argument("--share", action="store_true", help="Enable Gradio share URL (default: False)")
+    args = parser.parse_args()
+
+    port = args.port if args.port is not None else 7860
     demo = create_gradio_interface()
     demo.queue().launch(
         server_name="0.0.0.0", 
         server_port=port, 
-        debug=True
+        debug=True,
+        share=args.share
     )
