@@ -348,7 +348,10 @@ def process_image_inference(session_state, test_image_input, file_input,
             })
             
             total_elements = len(pdf_result['combined_cells_data'])
-            info_text = f"**PDF Information:**\n- Total Pages: {pdf_result['total_pages']}\n- Server: {current_config['ip']}:{current_config['port_vllm']}\n- Total Detected Elements: {total_elements}\n- Session ID: {pdf_result['session_id']}"
+            is_layout_prompt = prompt_mode in ["prompt_layout_all_en", "prompt_layout_only_en", "prompt_grounding_ocr"]
+            info_text = f"**PDF Information:**\n- Total Pages: {pdf_result['total_pages']}\n- Server: {current_config['ip']}:{current_config['port_vllm']}\n- Session ID: {pdf_result['session_id']}"
+            if is_layout_prompt:
+                info_text = info_text.replace("\n- Session ID:", f"\n- Total Detected Elements: {total_elements}\n- Session ID:")
             
             current_page_layout_image = preview_image
             current_page_json = ""
@@ -400,8 +403,10 @@ def process_image_inference(session_state, test_image_input, file_input,
                 'result_paths': parse_result['result_paths']
             })
             
-            num_elements = len(parse_result['cells_data']) if parse_result['cells_data'] else 0
-            info_text = f"**Image Information:**\n- Original Size: {original_image.width} x {original_image.height}\n- Model Input Size: {parse_result['input_width']} x {parse_result['input_height']}\n- Server: {current_config['ip']}:{current_config['port_vllm']}\n- Detected {num_elements} layout elements\n- Session ID: {parse_result['session_id']}"
+            num_elements = len(parse_result['cells_data']) if parse_result['cells_data'] else None
+            info_text = f"**Image Information:**\n- Original Size: {original_image.width} x {original_image.height}\n- Model Input Size: {parse_result['input_width']} x {parse_result['input_height']}\n- Server: {current_config['ip']}:{current_config['port_vllm']}\n- Session ID: {parse_result['session_id']}"
+            if num_elements is not None:
+                info_text = info_text.replace("\n- Session ID:", f"\n- Detected {num_elements} layout elements\n- Session ID:")
             
             current_json = json.dumps(parse_result['cells_data'], ensure_ascii=False, indent=2) if parse_result['cells_data'] else ""
             
@@ -413,8 +418,11 @@ def process_image_inference(session_state, test_image_input, file_input,
                         for file in files:
                             if not file.endswith('.zip'): zipf.write(os.path.join(root, file), os.path.relpath(os.path.join(root, file), parse_result['temp_dir']))
             
+            # Show layout image if created; otherwise fall back to original image (non-layout prompts or empty/invalid layout)
+            display_image = parse_result['layout_image'] if parse_result['layout_image'] is not None else original_image
+
             return (
-                parse_result['layout_image'], info_text, parse_result['md_content'] or "No markdown content generated",
+                display_image, info_text, parse_result['md_content'] or "No markdown content generated",
                 md_content_raw, gr.update(value=download_zip_path, visible=bool(download_zip_path)),
                 None, current_json, session_state
             )
