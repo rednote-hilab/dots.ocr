@@ -260,7 +260,8 @@ def process_image_inference_with_annotation(annotation_data, test_image_input,
     if image is None:
         return None, "Please select a test image or add an image in the annotation component", "", "", gr.update(value=None), ""
     if bbox is None:
-        return "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None)
+        # Ensure we return 6 outputs to match the interface bindings
+        return "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None), ""
     
     try:
         # Process using DotsOCRParser, passing the bbox parameter
@@ -308,16 +309,18 @@ def process_image_inference_with_annotation(annotation_data, test_image_input,
             )
         
         # Handle the case where JSON parsing succeeds
-        num_elements = len(cells_data) if cells_data else 0
+        num_elements = len(cells_data) if cells_data else None
         info_text = f"""
 **Image Information:**
 - Original Dimensions: {original_image.width} x {original_image.height}
 - Processing Mode: {'Region OCR' if bbox else 'Full Image OCR'}
 - Server: {current_config['ip']}:{current_config['port_vllm']}
-- Detected {num_elements} layout elements
 - Session ID: {parse_result['session_id']}
 - Box Coordinates: {bbox if bbox else 'None'}
         """
+        # Only mention detected elements when cells_data is present (aligns with conditional layout behavior)
+        if num_elements is not None:
+            info_text = info_text.replace("\n- Session ID:", f"\n- Detected {num_elements} layout elements\n- Session ID:")
         
         # Current page JSON output
         current_json = ""
