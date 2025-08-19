@@ -1,5 +1,5 @@
-
 from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response
+from fastapi.responses import JSONResponse
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel
 import os
@@ -125,7 +125,6 @@ async def parse(
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
 
                 output_bucket, output_key = parse_s3_path(output_s3_path)
-                output_key = output_key
                 output_file_name = output_s3_path.rstrip("/").split("/")[-1]
                 output_file_path = OUTPUT_DIR / output_bucket / output_key
                 output_md_path = output_file_path / output_file_name
@@ -378,12 +377,18 @@ async def stream_page_by_page_upload_generator(
                 except Exception as e:
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
 
-
-            output_bucket, output_key_prefix = parse_s3_path(output_s3_path)
-            local_save_dir = OUTPUT_DIR / output_bucket / output_key_prefix
+            output_bucket, output_key = parse_s3_path(output_s3_path)
+            output_file_name = output_s3_path.rstrip("/").split("/")[-1]
+            output_file_path = OUTPUT_DIR / output_bucket / output_key
+            output_md_path = output_file_path / output_file_name
+            output_json_path = output_md_path.with_suffix(".json")
+            output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
+            output_md_path = output_md_path.with_suffix(".md")
+            output_md_path.parent.mkdir(parents=True, exist_ok=True)
+            local_save_dir = OUTPUT_DIR / output_bucket / output_key
             local_save_dir.mkdir(parents=True, exist_ok=True)
             
-            async def upload_file_and_cleanup(local_path, bucket, key):
+            async def upload_file(local_path, bucket, key):
                 if not local_path or not os.path.exists(local_path):
                     return None
                 try:
@@ -393,13 +398,14 @@ async def stream_page_by_page_upload_generator(
                         s3_oss_client.upload_file(Bucket=bucket, Key=key, Filename=str(local_path))
                     s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
                     logging.info(f"Successfully uploaded {local_path} to {s3_full_path}")
-                    os.remove(local_path)
+                    # os.remove(local_path)
                     return s3_full_path
                 except Exception as e:
                     logging.error(f"Failed to upload {local_path} to s3://{bucket}/{key}: {e}")
                     return None
 
-            async for result in dots_parser.parse_pdf_stream(
+            all_paths_to_upload = []
+            async for result in dots_parser.parse_pdf_stream2(
                 input_path=input_file_path,
                 filename=Path(input_file_path).stem,
                 prompt_mode=prompt_mode,
@@ -413,13 +419,16 @@ async def stream_page_by_page_upload_generator(
                     'md_nohf': result.get('md_content_nohf_path'),
                     'json': result.get('layout_info_path')
                 }
+                path_to_upload_with_page_no = paths_to_upload.copy()
+                path_to_upload_with_page_no['page_no'] = page_no
+                all_paths_to_upload.append(path_to_upload_with_page_no)
 
                 for file_type, local_path in paths_to_upload.items():
                     if local_path:
                         file_name = Path(local_path).name
-                        s3_key = f"{output_key_prefix}/{file_name}"
+                        s3_key = f"{output_key}/{file_name}"
                         task = asyncio.create_task(
-                            upload_file_and_cleanup(local_path, output_bucket, s3_key)
+                            upload_file(local_path, output_bucket, s3_key)
                         )
                         page_upload_tasks.append(task)
                 
@@ -433,12 +442,68 @@ async def stream_page_by_page_upload_generator(
                 
                 yield json.dumps(page_response) + "\n"
 
+
+            # combine all page to upload
+            all_paths_to_upload.sort(key=lambda item: item['page_no'])
+            output_files = {}
+            output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
+            output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
+            output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+            for p in all_paths_to_upload:
+                page_no = p.pop('page_no')
+                for file_type, local_path in p.items():
+                    with open(local_path, 'r', encoding='utf-8') as input_file:
+                        file_content = input_file.read()
+                    output_files[file_type].write(file_content)
+                    output_files[file_type].write("\n\n")
+
+            try:
+                if is_s3:
+                    s3_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}.md",
+                        Filename=str(output_md_path)
+                    )
+                    s3_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}_nohf.md",
+                        Filename=str(output_md_nohf_path)
+                    )
+                    s3_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}.json",
+                        Filename=str(output_json_path)
+                    )
+                else:
+                    s3_oss_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}.md",
+                        Filename=str(output_md_path)
+                    )
+                    s3_oss_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}_nohf.md",
+                        Filename=str(output_md_nohf_path)
+                    )
+                    s3_oss_client.upload_file(
+                        Bucket=output_bucket,
+                        Key=f"{output_key}/{output_file_name}.json",
+                        Filename=str(output_json_path)
+                    )
+                logging.info(f"upload from s3/oss successfully: {output_file_path}")
+            except Exception as e:
+                raise RuntimeError(f"Failed to upload file from s3/oss: {str(e)}") from e
+
+        final_response = {
+            "success": True,
+            "total_pages": len(all_paths_to_upload),
+            "output_s3_path": output_s3_path
+        }
+        yield json.dumps(final_response) + '\n'
+                        
     except Exception as e:
-        
         error_msg = json.dumps({"status": "error", "detail": str(e)})
         yield error_msg + "\n"
-
-
 
 @app.post("/parse/pdf_stream")
 async def parse_pdf_stream(

@@ -11,7 +11,7 @@ from dots_ocr.model.inference import inference_with_vllm
 
 from dots_ocr.utils.consts import image_extensions, MIN_PIXELS, MAX_PIXELS
 from dots_ocr.utils.image_utils import get_image_by_fitz_doc, fetch_image, smart_resize
-from dots_ocr.utils.doc_utils import load_images_from_pdf
+from dots_ocr.utils.doc_utils import load_images_from_pdf, iter_images_from_pdf, get_pdf_page_count_fitz
 from dots_ocr.utils.prompts import dict_promptmode_to_prompt
 from dots_ocr.utils.layout_utils import post_process_output, draw_layout_on_image, pre_process_bboxes
 from dots_ocr.utils.format_transformer import layoutjson2md
@@ -195,3 +195,32 @@ class DotsOCRParser:
                 yield result
             except Exception as e:
                 print(f"An error occurred while processing a page: {e}")
+    
+    async def parse_pdf_stream2(self, input_path, filename, prompt_mode, save_dir, batch_size=32):
+
+        loop = asyncio.get_running_loop()
+        
+        total_pages = get_pdf_page_count_fitz(input_path)
+
+        tasks = []
+        with tqdm(total=total_pages, desc="Processing PDF pages (stream)") as pbar:
+            for page_idx, image in iter_images_from_pdf(input_path, dpi=200):
+                tasks.append(asyncio.create_task(
+                    self._parse_single_image(
+                        origin_image=image,
+                        prompt_mode=prompt_mode,
+                        save_dir=save_dir,
+                        save_name=filename,
+                        source="pdf",
+                        page_idx=page_idx,
+                    )
+                ))
+                if len(tasks) >= batch_size:
+                    for future in asyncio.as_completed(tasks):
+                        yield await future
+                        pbar.update(1)
+                    tasks.clear()
+
+            for future in asyncio.as_completed(tasks):
+                yield await future
+                pbar.update(1)
