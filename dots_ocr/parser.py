@@ -165,17 +165,18 @@ class DotsOCRParser:
         results.sort(key=lambda x: x["page_no"])
         return results
 
-    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir, batch_size=32, existing_pages=set()):
+    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir, batch_size=16, existing_pages=set()):
 
         loop = asyncio.get_running_loop()
         
         total_pages = get_pdf_page_count_fitz(input_path) - len(existing_pages)
 
+        semaphore = asyncio.Semaphore(batch_size)
         tasks = []
         with tqdm(total=total_pages, desc="Processing PDF pages (stream)") as pbar:
-            for page_idx, image in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
-                tasks.append(asyncio.create_task(
-                    self._parse_single_image(
+            async def worker(page_idx, image):
+                async with semaphore:
+                    result = await self._parse_single_image(
                         origin_image=image,
                         prompt_mode=prompt_mode,
                         save_dir=save_dir,
@@ -183,13 +184,12 @@ class DotsOCRParser:
                         source="pdf",
                         page_idx=page_idx,
                     )
-                ))
-                if len(tasks) >= batch_size:
-                    for future in asyncio.as_completed(tasks):
-                        yield await future
-                        pbar.update(1)
-                    tasks.clear()
+                    pbar.update(1)
+                    return result
+
+            for page_idx, image in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
+                task = asyncio.create_task(worker(page_idx, image))
+                tasks.append(task)
 
             for future in asyncio.as_completed(tasks):
                 yield await future
-                pbar.update(1)
