@@ -165,46 +165,15 @@ class DotsOCRParser:
         results.sort(key=lambda x: x["page_no"])
         return results
 
-    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir):
-        loop = asyncio.get_running_loop()
-
-        print(f"Loading PDF for streaming: {input_path}")
-        images_origin = await loop.run_in_executor(CPU_EXECUTOR, load_images_from_pdf, input_path)
-        
-        total_pages = len(images_origin)
-        if total_pages == 0:
-            print("Warning: PDF has no pages or no images could be extracted.")
-            return
-
-        print(f"Streaming parse for PDF with {total_pages} pages using concurrency of {self.concurrency_limit}...")
-
-        tasks = [
-            asyncio.create_task(self._parse_single_image(
-                origin_image=image,
-                prompt_mode=prompt_mode,
-                save_dir=save_dir,
-                save_name=filename,
-                source="pdf",
-                page_idx=i,
-            )) for i, image in enumerate(images_origin)
-        ]
-
-        for future in tqdm(asyncio.as_completed(tasks), total=total_pages, desc="Processing PDF pages (stream)"):
-            try:
-                result = await future
-                yield result
-            except Exception as e:
-                print(f"An error occurred while processing a page: {e}")
-    
-    async def parse_pdf_stream2(self, input_path, filename, prompt_mode, save_dir, batch_size=32):
+    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir, batch_size=32, existing_pages=set()):
 
         loop = asyncio.get_running_loop()
         
-        total_pages = get_pdf_page_count_fitz(input_path)
+        total_pages = get_pdf_page_count_fitz(input_path) - len(existing_pages)
 
         tasks = []
         with tqdm(total=total_pages, desc="Processing PDF pages (stream)") as pbar:
-            for page_idx, image in iter_images_from_pdf(input_path, dpi=200):
+            for page_idx, image in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
                 tasks.append(asyncio.create_task(
                     self._parse_single_image(
                         origin_image=image,

@@ -66,7 +66,7 @@ def load_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None) -
                 images.append(img)
     return images
 
-def iter_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None):
+def iter_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None, existing_pages=set()):
     with fitz.open(pdf_file) as doc:
         pdf_page_num = doc.page_count
         end_page_id = (
@@ -79,6 +79,8 @@ def iter_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None):
             end_page_id = pdf_page_num - 1
 
         for index in range(start_page_id, end_page_id + 1):
+            if index in existing_pages:
+                continue
             page = doc[index]
             img = fitz_doc_to_image(page, target_dpi=dpi)
             yield index, img
