@@ -14,6 +14,7 @@ import base64
 import zipfile
 import uuid
 import re
+import argparse
 from pathlib import Path
 from PIL import Image
 import requests
@@ -42,16 +43,8 @@ DEFAULT_CONFIG = {
 # Store current configuration
 current_config = DEFAULT_CONFIG.copy()
 
-# Create DotsOCRParser instance
-dots_parser = DotsOCRParser(
-    ip=DEFAULT_CONFIG['ip'],
-    port=DEFAULT_CONFIG['port_vllm'],
-    dpi=200,
-    min_pixels=DEFAULT_CONFIG['min_pixels'],
-    max_pixels=DEFAULT_CONFIG['max_pixels'],
-    use_hf=True,
-    use_mps=True,
-)
+# Global DotsOCRParser instance (will be initialized in main)
+dots_parser = None
 
 def get_initial_session_state():
     return {
@@ -719,11 +712,65 @@ def create_gradio_interface():
 
 # ==================== Main Program ====================
 if __name__ == "__main__":
-    import sys
-    port = int(sys.argv[1])
+    # Parse command line arguments
+    def parse_arguments():
+        """Parse command line arguments"""
+        parser = argparse.ArgumentParser(description='dots.ocr Gradio Demo')
+        parser.add_argument('--ip', type=str, default=DEFAULT_CONFIG['ip'], 
+                            help='Server IP address')
+        parser.add_argument('--port_vllm', type=int, default=DEFAULT_CONFIG['port_vllm'], 
+                            help='VLLM server port')
+        parser.add_argument('--min_pixels', type=int, default=DEFAULT_CONFIG['min_pixels'], 
+                            help='Minimum pixels for image processing')
+        parser.add_argument('--max_pixels', type=int, default=DEFAULT_CONFIG['max_pixels'], 
+                            help='Maximum pixels for image processing')
+        parser.add_argument('--use_hf', action='store_true', default=False,
+                            help='Use HuggingFace backend instead of vLLM')
+        parser.add_argument('--port', type=int, default=7860,
+                            help='Gradio server port')
+        return parser.parse_args()
+
+    args = parse_arguments()
+
+    # Detect MPS if use_hf is specified
+    use_mps = False
+    if args.use_hf:
+        import torch
+        if torch.backends.mps.is_available():
+            use_mps = True
+            print("MPS (Metal Performance Shaders) detected and enabled for Apple Silicon")
+        else:
+            print("MPS not available, using default backend")
+ 
+    dots_parser = DotsOCRParser(
+        ip=args.ip,
+        port=args.port_vllm,
+        dpi=200,
+        min_pixels=args.min_pixels,
+        max_pixels=args.max_pixels,
+        use_hf=args.use_hf,
+        use_mps=use_mps,
+    )
+
+    # Update DEFAULT_CONFIG with parsed arguments
+    DEFAULT_CONFIG.update({
+        'ip': args.ip,
+        'port_vllm': args.port_vllm,
+        'min_pixels': args.min_pixels,
+        'max_pixels': args.max_pixels,
+    })
+
+    # Update current_config with parsed arguments
+    current_config.update({
+        'ip': args.ip,
+        'port_vllm': args.port_vllm,
+        'min_pixels': args.min_pixels,
+        'max_pixels': args.max_pixels,
+    })
+
     demo = create_gradio_interface()
     demo.queue().launch(
         server_name="0.0.0.0", 
-        server_port=port, 
+        server_port=args.port, 
         debug=True
     )

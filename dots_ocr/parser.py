@@ -101,7 +101,6 @@ class DotsOCRParser:
                 config=config,
                 attn_implementation="sdpa",
                 torch_dtype=dtype,
-                low_cpu_mem_usage=True,
                 device_map="auto",
                 trust_remote_code=True
             )
