@@ -1140,11 +1140,8 @@ Please refer to [CPU inference](https://github.com/rednote-hilab/dots.ocr/issues
 For Apple Silicon Mac users, you can use MPS (Metal Performance Shaders) for inference. Follow these steps to set up MPS inference:
 
 #### 1. Installation Setup
-
-First, comment out flash-attn in requirements.txt as it's not compatible with MPS:
-
-```shell
-# Comment out flash-attn==2.8.0.post2 in requirements.txt
+ 
+```shell 
 # Install dependencies for Mac:
 pip install -r requirements-mac.txt
 ```
