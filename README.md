@@ -1151,7 +1151,10 @@ pip install -r requirements-mac.txt
 
 #### 2. Adjust Pixel Limits for M4 with 16GB Memory
 
-Based on testing, adjust the pixel constants in `dots_ocr/utils/consts.py` to just fit inference sampling on M4 with 16GB memory:
+Based on testing, adjust the pixel constants in `dots_ocr/utils/consts.py` or  gradio UI `Advanced Configuration`
+
+Inference sampling on M4 with 16GB memory:
+
 
 ```python
 MIN_PIXELS = 3136
@@ -1170,7 +1173,7 @@ python3 demo/dots_mps_parse.py /path/to/your/document.pdf
 
 2. Gradio demo:
 ```bash
-python3 demo/demo_gradio.py
+python3 demo/demo_gradio.py --use_hf
 ```
 
 #### Performance Notes
