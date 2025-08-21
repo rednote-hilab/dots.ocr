@@ -109,63 +109,66 @@ def get_image_input():
 
 
 
-def process_and_display_results(output: str, image: Image.Image, config: dict):
-    """Process and display inference results"""
+def process_and_display_results(output: dict, image: Image.Image, config: dict):
+    """Process and display inference results in a way that matches parser's refined logic"""
     prompt, response = output['prompt'], output['response']
-    
+    prompt_key = output.get('prompt_key')
+
+    # Determine if this is a layout prompt
+    layout_prompts = ['prompt_layout_all_en', 'prompt_layout_only_en', 'prompt_grounding_ocr']
+    is_layout = prompt_key in layout_prompts
+
+    # Always show original image
+    st.markdown('---')
+    st.markdown('##### Original Image')
+    st.image(image, width=image.width if image.width < 1000 else 1000)
+
+    # Show server input dimensions for reference
+    input_width, input_height = get_input_dimensions(
+        image,
+        min_pixels=config['min_pixels'],
+        max_pixels=config['max_pixels']
+    )
+    st.write(f'Input Dimensions: {input_width} x {input_height}')
+
+    if not is_layout:
+        # Non-layout prompts: show raw text output only
+        st.text_area('Model Output', response, height=300)
+        return
+
+    # Layout prompts: try to parse JSON and visualize only when there are cells
     try:
-        col1, col2 = st.columns(2)
-        # st.markdown('---')
         cells = json.loads(response)
-        # image = Image.open(img_url)
-        
-        # Post-processing
         cells = post_process_cells(
             image, cells,
             image.width, image.height,
             min_pixels=config['min_pixels'],
             max_pixels=config['max_pixels']
         )
-        
-        # Calculate input dimensions
-        input_width, input_height = get_input_dimensions(
-            image,
-            min_pixels=config['min_pixels'],
-            max_pixels=config['max_pixels']
-        )
-        st.markdown('---')
-        st.write(f'Input Dimensions: {input_width} x {input_height}')
-        # st.write(f'Prompt: {prompt}')
-        # st.markdown(f'模型原始输出: <span style="color:blue">{result}</span>', unsafe_allow_html=True)
-        # st.write('模型原始输出：')
-        # st.write(response)
-        # st.write('后处理结果:', str(cells))
-        st.text_area('Original Model Output', response, height=200)
-        st.text_area('Post-processed Result', str(cells), height=200)
-        # 显示结果
-        # st.title("Layout推理结果")
-        
-        with col1:
-            # st.markdown("##### 可视化结果")
-            new_image = draw_layout_on_image(
-                image, cells, 
-                resized_height=None, resized_width=None,
-                # text_key='text', 
-                fill_bbox=True, draw_bbox=True
-            )
-            st.markdown('##### Visualization Result')
-            st.image(new_image, width=new_image.width)
-            # st.write(f"尺寸: {new_image.width} x {new_image.height}")
-        
-        with col2:
-            # st.markdown("##### Markdown格式")
-            md_code = layoutjson2md(image, cells, text_key='text')
-            # md_code = fix_streamlit_formula(md_code)
-            st.markdown('##### Markdown Format')
-            st.markdown(md_code, unsafe_allow_html=True)
-            
+
+        st.text_area('Original Model Output (JSON)', response, height=200)
+        st.text_area('Post-processed Cells', str(cells), height=200)
+
+        if isinstance(cells, list) and len(cells) > 0:
+            col1, col2 = st.columns(2)
+            with col1:
+                new_image = draw_layout_on_image(
+                    image, cells,
+                    resized_height=None, resized_width=None,
+                    fill_bbox=True, draw_bbox=True
+                )
+                st.markdown('##### Layout Visualization')
+                st.image(new_image, width=new_image.width if new_image.width < 1000 else 1000)
+            with col2:
+                md_code = layoutjson2md(image, cells, text_key='text')
+                st.markdown('##### Markdown Format')
+                st.markdown(md_code, unsafe_allow_html=True)
+        else:
+            st.info('No layout detected. Skipping visualization.')
     except json.JSONDecodeError:
-        st.error("Model output is not a valid JSON format")
+        # JSON invalid => align with parser: no layout image should be created
+        st.warning('Model output is not valid JSON for a layout prompt. Skipping visualization.')
+        st.text_area('Original Model Output', response, height=300)
     except Exception as e:
         st.error(f"Error processing results: {e}")
 
@@ -205,10 +208,10 @@ def main():
             
             response = inference_with_vllm(
                 processed_image, prompt, config['ip'], config['port'],
-                # config['min_pixels'], config['max_pixels']
             )
             output = {
                 'prompt': prompt,
+                'prompt_key': config['prompt_key'],
                 'response': response,
             }
     else:

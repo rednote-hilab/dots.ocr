@@ -172,6 +172,10 @@ class DotsOCRParser:
         }
         if source == 'pdf':
             save_name = f"{save_name}_page_{page_idx}"
+        # Always save original (untouched) image
+        original_image_path = os.path.join(save_dir, f"{save_name}_original.jpg")
+        origin_image.save(original_image_path)
+        result.update({'original_image_path': original_image_path})
         if prompt_mode in ['prompt_layout_all_en', 'prompt_layout_only_en', 'prompt_grounding_ocr']:
             cells, filtered = post_process_output(
                 response, 
@@ -185,12 +189,8 @@ class DotsOCRParser:
                 json_file_path = os.path.join(save_dir, f"{save_name}.json")
                 with open(json_file_path, 'w', encoding="utf-8") as w:
                     json.dump(response, w, ensure_ascii=False)
-
-                image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
-                origin_image.save(image_layout_path)
                 result.update({
                     'layout_info_path': json_file_path,
-                    'layout_image_path': image_layout_path,
                 })
 
                 md_file_path = os.path.join(save_dir, f"{save_name}.md")
@@ -204,21 +204,26 @@ class DotsOCRParser:
                 })
             else:
                 try:
-                    image_with_layout = draw_layout_on_image(origin_image, cells)
+                    if isinstance(cells, list) and len(cells) > 0:
+                        image_with_layout = draw_layout_on_image(origin_image, cells)
+                    else:
+                        image_with_layout = None
                 except Exception as e:
                     print(f"Error drawing layout on image: {e}")
-                    image_with_layout = origin_image
+                    image_with_layout = None
 
                 json_file_path = os.path.join(save_dir, f"{save_name}.json")
                 with open(json_file_path, 'w', encoding="utf-8") as w:
                     json.dump(cells, w, ensure_ascii=False)
-
-                image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
-                image_with_layout.save(image_layout_path)
                 result.update({
                     'layout_info_path': json_file_path,
-                    'layout_image_path': image_layout_path,
                 })
+                if image_with_layout is not None:
+                    image_layout_path = os.path.join(save_dir, f"{save_name}_layout.jpg")
+                    image_with_layout.save(image_layout_path)
+                    result.update({
+                        'layout_image_path': image_layout_path,
+                    })
                 if prompt_mode != "prompt_layout_only_en":  # no text md when detection only
                     md_content = layoutjson2md(origin_image, cells, text_key='text')
                     md_content_no_hf = layoutjson2md(origin_image, cells, text_key='text', no_page_hf=True) # used for clean output or metric of omnidocbench、olmbench 
@@ -233,12 +238,6 @@ class DotsOCRParser:
                         'md_content_nohf_path': md_nohf_file_path,
                     })
         else:
-            image_layout_path = os.path.join(save_dir, f"{save_name}.jpg")
-            origin_image.save(image_layout_path)
-            result.update({
-                'layout_image_path': image_layout_path,
-            })
-
             md_content = response
             md_file_path = os.path.join(save_dir, f"{save_name}.md")
             with open(md_file_path, "w", encoding="utf-8") as md_file:

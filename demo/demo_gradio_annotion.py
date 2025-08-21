@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 from PIL import Image
 import requests
+import argparse
 from gradio_image_annotation import image_annotator
 
 # Local utility imports
@@ -260,7 +261,8 @@ def process_image_inference_with_annotation(annotation_data, test_image_input,
     if image is None:
         return None, "Please select a test image or add an image in the annotation component", "", "", gr.update(value=None), ""
     if bbox is None:
-        return "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None)
+        # Ensure we return 6 outputs to match the interface bindings
+        return "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None), ""
     
     try:
         # Process using DotsOCRParser, passing the bbox parameter
@@ -308,16 +310,18 @@ def process_image_inference_with_annotation(annotation_data, test_image_input,
             )
         
         # Handle the case where JSON parsing succeeds
-        num_elements = len(cells_data) if cells_data else 0
+        num_elements = len(cells_data) if cells_data else None
         info_text = f"""
 **Image Information:**
 - Original Dimensions: {original_image.width} x {original_image.height}
 - Processing Mode: {'Region OCR' if bbox else 'Full Image OCR'}
 - Server: {current_config['ip']}:{current_config['port_vllm']}
-- Detected {num_elements} layout elements
 - Session ID: {parse_result['session_id']}
 - Box Coordinates: {bbox if bbox else 'None'}
         """
+        # Only mention detected elements when cells_data is present (aligns with conditional layout behavior)
+        if num_elements is not None:
+            info_text = info_text.replace("\n- Session ID:", f"\n- Detected {num_elements} layout elements\n- Session ID:")
         
         # Current page JSON output
         current_json = ""
@@ -658,9 +662,16 @@ def create_gradio_interface():
 
 # ==================== Main Program ====================
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Run dots.ocr Gradio annotation demo")
+    parser.add_argument("port", nargs="?", type=int, help="Port to run Gradio on (default: 7861)")
+    parser.add_argument("--share", action="store_true", help="Enable Gradio share URL (default: False)")
+    args = parser.parse_args()
+
+    port = args.port if args.port is not None else 7861
     demo = create_gradio_interface()
     demo.queue().launch(
         server_name="0.0.0.0", 
-        server_port=7861,  # Use a different port to avoid conflicts
-        debug=True
+        server_port=port,  # Default different port to avoid conflicts
+        debug=True,
+        share=args.share
     )
