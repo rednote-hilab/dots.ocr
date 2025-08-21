@@ -8,6 +8,7 @@ import json
 from dots_ocr.utils.image_utils import smart_resize
 from dots_ocr.utils.consts import MIN_PIXELS, MAX_PIXELS
 from dots_ocr.utils.output_cleaner import OutputCleaner
+from dots_ocr.utils.try_parse_json_object import try_parse_json_object
 
 
 # Define a color map (using RGBA format)
@@ -204,7 +205,7 @@ def post_process_output(response, prompt_mode, origin_image, input_image, min_pi
         return response
 
     json_load_failed = False
-    cells = response
+    cells, _ = try_parse_json_object(response)
     try:
         cells = json.loads(cells)
         cells = post_process_cells(
