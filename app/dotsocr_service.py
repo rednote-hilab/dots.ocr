@@ -2,11 +2,15 @@ from fastapi import FastAPI, Form, HTTPException, UploadFile, File, Response
 from fastapi.responses import JSONResponse
 from starlette.responses import StreamingResponse
 from pydantic import BaseModel
+from typing import Dict, Literal, List
+from collections import deque
 import os
 from pathlib import Path
 import tempfile
 import uuid
 import json
+from tenacity import retry, stop_after_attempt, wait_exponential, before_sleep_log
+from contextlib import asynccontextmanager 
 
 from dots_ocr.parser import DotsOCRParser
 from dots_ocr.utils.consts import MIN_PIXELS, MAX_PIXELS
@@ -19,10 +23,31 @@ import httpx
 import re
 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+
+NUM_WORKERS = 4 
+WORKER_TASKS: List[asyncio.Task] = []
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.info(f"Starting up {NUM_WORKERS} worker tasks...")
+    for i in range(NUM_WORKERS):
+        task = asyncio.create_task(worker(f"Worker-{i}"))
+        WORKER_TASKS.append(task)
+    
+    yield
+
+    logging.info("Shutting down and canceling worker tasks...")
+    for task in WORKER_TASKS:
+        task.cancel()
+    
+    await asyncio.gather(*WORKER_TASKS, return_exceptions=True)
+    logging.info("All worker tasks have been canceled.")
+
 app = FastAPI(
     title="dotsOCR API",
     description="API for PDF and image text recognition using dotsOCR by Grant",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan 
 )
 
 
@@ -42,7 +67,6 @@ s3_oss_client = boto3.client(
                   signature_version='s3'))
 
 
-
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "input"
 OUTPUT_DIR = BASE_DIR / "output"
@@ -54,12 +78,6 @@ GLOBAL_LOCK_MANAGER = asyncio.Lock()
 PROCESSING_INPUT_LOCKS = {} 
 PROCESSING_OUTPUT_LOCKS = {} 
 
-# Initialize parser with default config
-class ParseRequest(BaseModel):
-    prompt_mode: str = "prompt_layout_all_en"
-    fitz_preprocess: bool = False
-
-
 dots_parser = DotsOCRParser(
     ip="localhost",
     port=8000,
@@ -69,6 +87,13 @@ dots_parser = DotsOCRParser(
     max_pixels=MAX_PIXELS,
 )
 
+def parse_s3_path(s3_path: str, is_s3):
+    if is_s3:
+        s3_path = s3_path.replace("s3://", "")
+    else:
+        s3_path = s3_path.replace("oss://", "")
+    bucket, *key_parts = s3_path.split("/")
+    return bucket, "/".join(key_parts)
 
 def _get_existing_page_indices_s3_sync(bucket: str, prefix: str) -> set:
     print(bucket, prefix)
@@ -99,6 +124,518 @@ async def _get_existing_page_indices_s3(bucket: str, prefix: str) -> set:
         None, _get_existing_page_indices_s3_sync, bucket, prefix
     )
 
+async def upload_file(bucket, key, local_path, is_s3):
+    if not local_path or not os.path.exists(local_path):
+        return None
+    try:
+        if is_s3:
+            s3_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
+        else:
+            s3_oss_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
+        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
+        logging.info(f"Successfully uploaded {local_path} to {s3_full_path}")
+        # os.remove(local_path)
+        return s3_full_path
+    except Exception as e:
+        logging.error(f"Failed to upload {local_path} to s3://{bucket}/{key}: {e}")
+        return None
+        
+async def download_file(bucket, key, local_path, is_s3):
+    if not bucket or not key or not local_path:
+        logging.warning("Bucket, key, and local_path must be specified.")
+        return None
+    try:
+        if is_s3:
+            s3_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
+        else:
+            s3_oss_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
+        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
+        logging.info(f"Successfully downloaded {local_path} to {s3_full_path}")
+        return s3_full_path
+    except Exception as e:
+        logging.error(f"Failed to download s3://{bucket}/{key} to {local_path}: {e}")
+        return None
+
+
+#-------------------------------interact with database------------------------------
+
+class JobResponseModel(BaseModel):
+    job_id: str
+    status: Literal["pending", "retrying", "processing", "completed", "failed", "canceled"] # canceled havn't implemented
+    message: str
+    is_s3: bool = True
+
+    input_s3_path: str
+    output_s3_path: str
+    page_prefix: str = None
+    json_url: str = None
+    md_url: str = None
+    md_nohf_url: str = None
+
+    prompt_mode: str = "prompt_layout_all_en"
+    fitz_preprocess: bool = False
+
+JobResponseDict: Dict[str, JobResponseModel] = {}
+JobLocks: Dict[str, asyncio.Lock] = {}
+JobQueue = asyncio.Queue()
+
+@app.post("/status")
+async def status_check(OCRJobId: str = Form(...)):
+    if OCRJobId not in JobResponseDict:
+        raise HTTPException(status_code=404, detail="Job ID not found")
+    
+    async with JobLocks[OCRJobId]:
+        JobResponse = JobResponseDict[OCRJobId]
+        status = JobResponse.status
+        message = JobResponse.message
+        page_prefix = JobResponse.page_prefix
+
+        if status == "completed":
+            return JobResponse
+        elif status == "failed":
+            return JSONResponse({"OCRJobId": OCRJobId, "status": status, "message": message, "page_prefix": page_prefix}, status_code=500)
+        return JSONResponse({"OCRJobId": OCRJobId, "status": status, "message": message, "page_prefix": page_prefix}, status_code=202)
+
+async def stream_and_upload_generator(
+    JobResponse: JobResponseModel
+):
+    input_s3_path = JobResponse.input_s3_path
+    output_s3_path = JobResponse.output_s3_path
+    is_s3 = JobResponse.is_s3
+
+    try:
+
+        file_bucket, file_key = parse_s3_path(input_s3_path, is_s3)
+        input_file_path = INPUT_DIR / file_bucket / file_key
+        input_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        async with GLOBAL_LOCK_MANAGER:
+            if input_s3_path not in PROCESSING_INPUT_LOCKS:
+                PROCESSING_INPUT_LOCKS[input_s3_path] = asyncio.Lock()
+            if output_s3_path not in PROCESSING_OUTPUT_LOCKS:
+                PROCESSING_OUTPUT_LOCKS[output_s3_path] = asyncio.Lock()
+        input_lock = PROCESSING_INPUT_LOCKS[input_s3_path]
+        output_lock = PROCESSING_OUTPUT_LOCKS[output_s3_path]
+
+        async with input_lock:
+            async with output_lock:
+
+                # download file from S3
+                await download_file(
+                    bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
+                )
+                
+                # prepare local path
+                output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
+                output_file_name = output_s3_path.rstrip("/").split("/")[-1]
+                output_file_path = OUTPUT_DIR / output_bucket / output_key
+                output_md_path = output_file_path / output_file_name
+                output_json_path = output_md_path.with_suffix(".json")
+                output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
+                output_md_path = output_md_path.with_suffix(".md")
+                output_md_path.parent.mkdir(parents=True, exist_ok=True)
+                output_file_path.mkdir(parents=True, exist_ok=True)
+            
+                # print(output_bucket, output_key)
+                # print(output_file_name)
+                # print(output_file_path)
+                # print(output_md_path)
+
+                JobResponse.json_url = f"{output_s3_path}/{output_file_name}.json"
+                JobResponse.md_url = f"{output_s3_path}/{output_file_name}.md"
+                JobResponse.md_nohf_url = f"{output_s3_path}/{output_file_name}_nohf.md"
+                JobResponse.page_prefix = f"{output_s3_path}/{output_file_name}_page_"
+                
+                s3_prefix = f"{output_key}/{output_file_name}_page_"
+                existing_pages = await _get_existing_page_indices_s3(output_bucket, s3_prefix)
+ 
+                # parse the PDF file and upload each page's output files
+                all_paths_to_upload = []
+                async for result in dots_parser.parse_pdf_stream(
+                    input_path=input_file_path,
+                    filename=Path(input_file_path).stem,
+                    prompt_mode=JobResponse.prompt_mode,
+                    save_dir=output_file_path,
+                    existing_pages=existing_pages
+                ):
+                    page_no = result.get('page_no', -1)
+                    
+                    page_upload_tasks = []
+                    paths_to_upload = {
+                        'md': result.get('md_content_path'),
+                        'md_nohf': result.get('md_content_nohf_path'),
+                        'json': result.get('layout_info_path')
+                    }
+                    for file_type, local_path in paths_to_upload.items():
+                        if local_path:
+                            file_name = Path(local_path).name
+                            s3_key = f"{output_key}/{file_name}"
+                            task = asyncio.create_task(
+                                upload_file(output_bucket, s3_key, local_path, is_s3)
+                            )
+                            page_upload_tasks.append(task)
+                    uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)                    
+
+                    paths_to_upload['page_no'] = page_no
+                    all_paths_to_upload.append(paths_to_upload)
+                    page_response = {
+                        "success": True,
+                        "message": "parse success",
+                        "page_no": page_no,
+                        "uploaded_files": [path for path in uploaded_paths_for_page if path]
+                    }
+                    yield json.dumps(page_response) + "\n"
+
+
+                # combine all page to upload
+                ## download exist pages
+                for page_no in existing_pages:
+                    json_path = f"{output_file_path}/{output_file_name}_page_{page_no}.json"
+                    md_path = f"{output_file_path}/{output_file_name}_page_{page_no}.md"
+                    md_nohf_path = f"{output_file_path}/{output_file_name}_page_{page_no}_nohf.md"
+                    paths_to_download = {
+                        'md': md_path,
+                        'md_nohf': md_nohf_path,
+                        'json': json_path
+                    }
+                    downloaded_paths_for_page = []
+                    if not (os.path.exists(json_path) and os.path.exists(md_nohf_path) and os.path.exists(md_path)):
+                        page_download_tasks = []
+                        for file_type, local_path in paths_to_download.items():
+                            if local_path:
+                                file_name = Path(local_path).name
+                                s3_key = f"{output_key}/{file_name}"
+                                task = asyncio.create_task(
+                                    download_file(output_bucket, s3_key, local_path, is_s3)
+                                )
+                                page_download_tasks.append(task)
+                        downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
+                        
+                        
+                    paths_to_download['page_no'] = page_no
+                    all_paths_to_upload.append(paths_to_download)
+                    page_response = {
+                        "success": True,
+                        "message": "parse output already exists in s3/oss",
+                        "page_no": page_no,
+                        "downloaded_files": [path for path in downloaded_paths_for_page if path]
+                    }
+                    yield json.dumps(page_response) + "\n"
+                        
+                ## combine output
+                all_paths_to_upload.sort(key=lambda item: item['page_no'])
+                output_files = {}
+                output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
+                output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
+                output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                for p in all_paths_to_upload:
+                    page_no = p.pop('page_no')
+                    for file_type, local_path in p.items():
+                        with open(local_path, 'r', encoding='utf-8') as input_file:
+                            file_content = input_file.read()
+                        output_files[file_type].write(file_content)
+                        output_files[file_type].write("\n\n")
+
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
+
+                final_response = {
+                    "success": True,
+                    "total_pages": len(all_paths_to_upload),
+                    "output_s3_path": output_s3_path
+                }
+                yield json.dumps(final_response) + '\n'
+                        
+    except Exception as e:
+        error_msg = json.dumps({"success": False, "detail": str(e)})
+        yield error_msg + "\n"
+
+
+RETRY_TIMES = 3
+@retry(
+    stop=stop_after_attempt(RETRY_TIMES),
+    wait=wait_exponential(multiplier=1, min=2, max=60),
+    before_sleep=before_sleep_log(logging.getLogger(__name__), logging.WARNING),
+    reraise=True
+)
+async def attempt_to_process_job(job: JobResponseModel):
+    attempt_num = attempt_to_process_job.retry.statistics.get('attempt_number', 0) + 1
+    if attempt_num == 1:
+        job.status = "processing"
+    else:
+        job.status = "retrying"
+    job.message = f"Processing job, attempt number: {attempt_num}"
+
+    try:
+        async for page_result in stream_and_upload_generator(job):
+            pass
+    except Exception as e:
+        logging.error(f"Job {job.job_id} failed on attempt {attempt_num} with error: {e}")
+        raise 
+
+async def worker(worker_id: str):
+    print(f"{worker_id} started")
+    while True:
+        try:
+            job_id = await JobQueue.get()
+            
+            JobResponse = JobResponseDict.get(job_id)
+            if not JobResponse:
+                logging.error(f"{worker_id}: Job ID '{job_id}' found in queue but not in JobResponseDict. Discarding task.")
+                JobQueue.task_done()
+                continue
+
+            try:
+                await attempt_to_process_job(JobResponse)
+                logging.info(f"Job {JobResponse.job_id} successfully processed.")
+            except Exception as e:
+                logging.error(f"Job {JobResponse.job_id} failed after 5 attempts. Final error: {e}", exc_info=True)
+                JobResponse.status = "failed"
+                JobResponse.message = f"Job failed after multiple retries. Final error: {str(e)}"
+
+            JobResponse.status = "completed"
+            JobResponse.message = "Job completed successfully"
+            JobQueue.task_done()
+        except asyncio.CancelledError:
+            logging.info(f"{worker_id} is shutting down.")
+            break
+        except Exception as e:
+            logging.error(f"Unexpected error in {worker_id}: {e}")
+
+@app.post("/parse/file")
+async def parse_file(
+    input_s3_path: str = Form(...),
+    output_s3_path: str = Form(...),
+    knowledgebaseId: str = Form(...),
+    workspaceId: str = Form(...),
+    prompt_mode: str = "prompt_layout_all_en",
+    fitz_preprocess: bool = False
+):
+    try:
+        file_ext = Path(input_s3_path).suffix.lower()
+    except (TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="Invalid input_s3_path format")
+
+    supported_formats = ['.pdf', '.jpg', '.jpeg', '.png']
+    if file_ext not in supported_formats:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format. Supported formats are: {', '.join(supported_formats)}"
+        )
+    
+    OCRJobId = knowledgebaseId + workspaceId + str(uuid.uuid4())
+    
+    
+    is_s3 = False
+    if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
+        is_s3 = True
+    elif input_s3_path.startswith("oss://") and output_s3_path.startswith("oss://"):
+        is_s3 = False
+    else:
+        raise RuntimeError("Input and output paths must both be s3:// or oss://")
+
+    JobResponse = JobResponseModel(
+        job_id=OCRJobId,
+        status="pending",
+        message="Job is pending",
+        is_s3=is_s3,
+        input_s3_path=input_s3_path,
+        output_s3_path=output_s3_path,
+        prompt_mode=prompt_mode,
+        fitz_preprocess=fitz_preprocess
+    )
+    JobResponseDict[OCRJobId] = JobResponse
+    JobLocks[OCRJobId] = asyncio.Lock()
+    await JobQueue.put(OCRJobId)
+    return JSONResponse({"OCRJobId": OCRJobId}, status_code=200)
+
+#------------------------------------stream-----------------------------------------
+
+
+async def stream_page_by_page_upload_generator(
+    input_s3_path: str,
+    output_s3_path: str,
+    prompt_mode: str
+):
+    """
+    Parses a PDF file, and streams the output files for each page directly to S3/OSS
+    as they are completed.
+    """
+    
+    is_s3 = False
+    if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
+        is_s3 = True
+    elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
+        is_s3 = False
+    else:
+        raise RuntimeError("Input and output paths must both be s3:// or oss://")
+    
+    try:
+        file_bucket, file_key = parse_s3_path(input_s3_path, is_s3)
+        input_file_path = INPUT_DIR / file_bucket / file_key
+        input_file_path.parent.mkdir(parents=True, exist_ok=True)
+
+        async with GLOBAL_LOCK_MANAGER:
+            if input_s3_path not in PROCESSING_INPUT_LOCKS:
+                PROCESSING_INPUT_LOCKS[input_s3_path] = asyncio.Lock()
+            if output_s3_path not in PROCESSING_OUTPUT_LOCKS:
+                PROCESSING_OUTPUT_LOCKS[output_s3_path] = asyncio.Lock()
+        input_lock = PROCESSING_INPUT_LOCKS[input_s3_path]
+        output_lock = PROCESSING_OUTPUT_LOCKS[output_s3_path]
+
+        async with input_lock:
+            async with output_lock:
+
+                # download file from S3
+                await download_file(
+                    bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
+                )
+                
+                # prepare local path
+                output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
+                output_file_name = output_s3_path.rstrip("/").split("/")[-1]
+                output_file_path = OUTPUT_DIR / output_bucket / output_key
+                output_md_path = output_file_path / output_file_name
+                output_json_path = output_md_path.with_suffix(".json")
+                output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
+                output_md_path = output_md_path.with_suffix(".md")
+                output_md_path.parent.mkdir(parents=True, exist_ok=True)
+                output_file_path.mkdir(parents=True, exist_ok=True)
+            
+                # print(output_bucket, output_key)
+                # print(output_file_name)
+                # print(output_file_path)
+                # print(output_md_path)
+                s3_prefix = f"{output_key}/{output_file_name}_page_"
+                existing_pages = await _get_existing_page_indices_s3(output_bucket, s3_prefix)
+
+                # parse the PDF file and upload each page's output files
+                all_paths_to_upload = []
+                async for result in dots_parser.parse_pdf_stream(
+                    input_path=input_file_path,
+                    filename=Path(input_file_path).stem,
+                    prompt_mode=prompt_mode,
+                    save_dir=output_file_path,
+                    existing_pages=existing_pages
+                ):
+                    page_no = result.get('page_no', -1)
+                    
+                    page_upload_tasks = []
+                    paths_to_upload = {
+                        'md': result.get('md_content_path'),
+                        'md_nohf': result.get('md_content_nohf_path'),
+                        'json': result.get('layout_info_path')
+                    }
+                    for file_type, local_path in paths_to_upload.items():
+                        if local_path:
+                            file_name = Path(local_path).name
+                            s3_key = f"{output_key}/{file_name}"
+                            task = asyncio.create_task(
+                                upload_file(output_bucket, s3_key, local_path, is_s3)
+                            )
+                            page_upload_tasks.append(task)
+                    uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)                    
+
+                    paths_to_upload['page_no'] = page_no
+                    all_paths_to_upload.append(paths_to_upload)
+                    page_response = {
+                        "success": True,
+                        "message": "parse success",
+                        "page_no": page_no,
+                        "uploaded_files": [path for path in uploaded_paths_for_page if path]
+                    }
+                    yield json.dumps(page_response) + "\n"
+
+
+                # combine all page to upload
+                ## download exist pages
+                for page_no in existing_pages:
+                    json_path = f"{output_file_path}/{output_file_name}_page_{page_no}.json"
+                    md_path = f"{output_file_path}/{output_file_name}_page_{page_no}.md"
+                    md_nohf_path = f"{output_file_path}/{output_file_name}_page_{page_no}_nohf.md"
+                    paths_to_download = {
+                        'md': md_path,
+                        'md_nohf': md_nohf_path,
+                        'json': json_path
+                    }
+                    downloaded_paths_for_page = []
+                    if not (os.path.exists(json_path) and os.path.exists(md_nohf_path) and os.path.exists(md_path)):
+                        page_download_tasks = []
+                        for file_type, local_path in paths_to_download.items():
+                            if local_path:
+                                file_name = Path(local_path).name
+                                s3_key = f"{output_key}/{file_name}"
+                                task = asyncio.create_task(
+                                    download_file(output_bucket, s3_key, local_path, is_s3)
+                                )
+                                page_download_tasks.append(task)
+                        downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
+                        
+                        
+                    paths_to_download['page_no'] = page_no
+                    all_paths_to_upload.append(paths_to_download)
+                    page_response = {
+                        "success": True,
+                        "message": "parse output already exists in s3/oss",
+                        "page_no": page_no,
+                        "downloaded_files": [path for path in downloaded_paths_for_page if path]
+                    }
+                    yield json.dumps(page_response) + "\n"
+                        
+                ## combine output
+                all_paths_to_upload.sort(key=lambda item: item['page_no'])
+                output_files = {}
+                output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
+                output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
+                output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                for p in all_paths_to_upload:
+                    page_no = p.pop('page_no')
+                    for file_type, local_path in p.items():
+                        with open(local_path, 'r', encoding='utf-8') as input_file:
+                            file_content = input_file.read()
+                        output_files[file_type].write(file_content)
+                        output_files[file_type].write("\n\n")
+
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
+                await upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
+
+                final_response = {
+                    "success": True,
+                    "total_pages": len(all_paths_to_upload),
+                    "output_s3_path": output_s3_path
+                }
+                yield json.dumps(final_response) + '\n'
+                        
+    except Exception as e:
+        error_msg = json.dumps({"success": False, "detail": str(e)})
+        yield error_msg + "\n"
+
+@app.post("/parse/pdf_stream")
+async def parse_pdf_stream(
+    input_s3_path: str = Form(...),
+    output_s3_path: str = Form(...),
+    prompt_mode: str = "prompt_layout_all_en",
+):
+    if not input_s3_path.lower().endswith('.pdf'):
+        raise HTTPException(
+            status_code=400, detail="Invalid file format. This endpoint only supports .pdf")
+
+    generator = stream_page_by_page_upload_generator(
+        input_s3_path=input_s3_path,
+        output_s3_path=output_s3_path,
+        prompt_mode=prompt_mode,
+    )
+    return StreamingResponse(generator, media_type="application/x-ndjson")
+
+
+
+
+
+
+#---------------------------not streamming---------------------------
+
 async def parse(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
@@ -114,15 +651,7 @@ async def parse(
     else:
         raise RuntimeError("Input and output paths must both be s3:// or oss://")
     try:
-        def parse_s3_path(s3_path: str):
-            if is_s3:
-                s3_path = s3_path.replace("s3://", "")
-            else:
-                s3_path = s3_path.replace("oss://", "")
-            bucket, *key_parts = s3_path.split("/")
-            return bucket, "/".join(key_parts)
-
-        file_bucket, file_key = parse_s3_path(input_s3_path)
+        file_bucket, file_key = parse_s3_path(input_s3_path, is_s3)
         input_file_path = INPUT_DIR / file_bucket / file_key
         input_file_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -155,7 +684,7 @@ async def parse(
                 except Exception as e:
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
 
-                output_bucket, output_key = parse_s3_path(output_s3_path)
+                output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
                 output_file_name = output_s3_path.rstrip("/").split("/")[-1]
                 output_file_path = OUTPUT_DIR / output_bucket / output_key
                 output_md_path = output_file_path / output_file_name
@@ -288,8 +817,8 @@ async def parse(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/parse/image")
-async def parse_image(
+@app.post("/parse/image_old")
+async def parse_image_old(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
@@ -305,8 +834,8 @@ async def parse_image(
     
     return await parse(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess, parse_type="image")
 
-@app.post("/parse/pdf")
-async def parse_pdf(
+@app.post("/parse/pdf_old")
+async def parse_pdf_old(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
@@ -323,8 +852,8 @@ async def parse_pdf(
     return await parse(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess, parse_type="pdf")
 
 
-@app.post("/parse/file")
-async def parse_file(
+@app.post("/parse/file_old")
+async def parse_file_old(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
@@ -337,9 +866,9 @@ async def parse_file(
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         if file_ext == '.pdf':
-            return await parse_pdf(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
+            return await parse_pdf_old(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
         elif file_ext in ['.jpg', '.jpeg', '.png']:
-            return await parse_image(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
+            return await parse_image_old(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
 
@@ -347,228 +876,11 @@ async def parse_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-#------------------------------------stream-----------------------------------------#
-
-async def upload_file(bucket, key, local_path, is_s3):
-    if not local_path or not os.path.exists(local_path):
-        return None
-    try:
-        if is_s3:
-            s3_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
-        else:
-            s3_oss_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
-        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
-        logging.info(f"Successfully uploaded {local_path} to {s3_full_path}")
-        # os.remove(local_path)
-        return s3_full_path
-    except Exception as e:
-        logging.error(f"Failed to upload {local_path} to s3://{bucket}/{key}: {e}")
-        return None
-        
-async def download_file(bucket, key, local_path, is_s3):
-    if not bucket or not key or not local_path:
-        logging.warning("Bucket, key, and local_path must be specified.")
-        return None
-    try:
-        if is_s3:
-            s3_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
-        else:
-            s3_oss_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
-        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
-        logging.info(f"Successfully downloaded {local_path} to {s3_full_path}")
-        return s3_full_path
-    except Exception as e:
-        logging.error(f"Failed to download s3://{bucket}/{key} to {local_path}: {e}")
-        return None
-
-async def stream_page_by_page_upload_generator(
-    input_s3_path: str,
-    output_s3_path: str,
-    prompt_mode: str
-):
-    """
-    Parses a PDF file, and streams the output files for each page directly to S3/OSS
-    as they are completed.
-    """
-    
-    is_s3 = False
-    if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
-        is_s3 = True
-    elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
-        is_s3 = False
-    else:
-        raise RuntimeError("Input and output paths must both be s3:// or oss://")
-    
-    try:
-        def parse_s3_path(s3_path: str):
-            if is_s3:
-                s3_path = s3_path.replace("s3://", "")
-            else:
-                s3_path = s3_path.replace("oss://", "")
-            bucket, *key_parts = s3_path.split("/")
-            return bucket, "/".join(key_parts)
-
-        file_bucket, file_key = parse_s3_path(input_s3_path)
-        input_file_path = INPUT_DIR / file_bucket / file_key
-        input_file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        async with GLOBAL_LOCK_MANAGER:
-            if input_s3_path not in PROCESSING_INPUT_LOCKS:
-                PROCESSING_INPUT_LOCKS[input_s3_path] = asyncio.Lock()
-            if output_s3_path not in PROCESSING_OUTPUT_LOCKS:
-                PROCESSING_OUTPUT_LOCKS[output_s3_path] = asyncio.Lock()
-        input_lock = PROCESSING_INPUT_LOCKS[input_s3_path]
-        output_lock = PROCESSING_OUTPUT_LOCKS[output_s3_path]
-
-        async with input_lock:
-            async with output_lock:
-
-                # download file from S3
-                await download_file(
-                    bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
-                )
-                
-                # prepare local path
-                output_bucket, output_key = parse_s3_path(output_s3_path)
-                output_file_name = output_s3_path.rstrip("/").split("/")[-1]
-                output_file_path = OUTPUT_DIR / output_bucket / output_key
-                output_md_path = output_file_path / output_file_name
-                output_json_path = output_md_path.with_suffix(".json")
-                output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
-                output_md_path = output_md_path.with_suffix(".md")
-                output_md_path.parent.mkdir(parents=True, exist_ok=True)
-                output_file_path.mkdir(parents=True, exist_ok=True)
-            
-                # print(output_bucket, output_key)
-                # print(output_file_name)
-                # print(output_file_path)
-                # print(output_md_path)
-                s3_prefix = f"{output_key}/{output_file_name}_page_"
-                existing_pages = await _get_existing_page_indices_s3(output_bucket, s3_prefix)
-
-                # parse the PDF file and upload each page's output files
-                all_paths_to_upload = []
-                async for result in dots_parser.parse_pdf_stream(
-                    input_path=input_file_path,
-                    filename=Path(input_file_path).stem,
-                    prompt_mode=prompt_mode,
-                    save_dir=output_file_name,
-                    existing_pages=existing_pages
-                ):
-                    page_no = result.get('page_no', -1)
-                    
-                    page_upload_tasks = []
-                    paths_to_upload = {
-                        'md': result.get('md_content_path'),
-                        'md_nohf': result.get('md_content_nohf_path'),
-                        'json': result.get('layout_info_path')
-                    }
-                    for file_type, local_path in paths_to_upload.items():
-                        if local_path:
-                            file_name = Path(local_path).name
-                            s3_key = f"{output_key}/{file_name}"
-                            task = asyncio.create_task(
-                                upload_file(output_bucket, s3_key, local_path, is_s3)
-                            )
-                            page_upload_tasks.append(task)
-                    uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)                    
-
-                    paths_to_upload['page_no'] = page_no
-                    all_paths_to_upload.append(paths_to_upload)
-                    page_response = {
-                        "success": True,
-                        "message": "parse success",
-                        "page_no": page_no,
-                        "uploaded_files": [path for path in uploaded_paths_for_page if path]
-                    }
-                    yield json.dumps(page_response) + "\n"
-
-
-                # combine all page to upload
-                ## download exist pages
-                for page_no in existing_pages:
-                    json_path = f"{output_file_path}/{output_file_name}_page_{page_no}.json"
-                    md_path = f"{output_file_path}/{output_file_name}_page_{page_no}.md"
-                    md_nohf_path = f"{output_file_path}/{output_file_name}_page_{page_no}_nohf.md"
-                    paths_to_download = {
-                        'md': md_path,
-                        'md_nohf': md_nohf_path,
-                        'json': json_path
-                    }
-                    downloaded_paths_for_page = []
-                    if not (os.path.exists(json_path) and os.path.exists(md_nohf_path) and os.path.exists(md_path)):
-                        page_download_tasks = []
-                        for file_type, local_path in paths_to_download.items():
-                            if local_path:
-                                file_name = Path(local_path).name
-                                s3_key = f"{output_key}/{file_name}"
-                                task = asyncio.create_task(
-                                    download_file(output_bucket, s3_key, local_path, is_s3)
-                                )
-                                page_download_tasks.append(task)
-                        downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
-                        
-                        
-                    paths_to_download['page_no'] = page_no
-                    all_paths_to_upload.append(paths_to_download)
-                    page_response = {
-                        "success": True,
-                        "message": "parse output already exists in s3/oss",
-                        "page_no": page_no,
-                        "downloaded_files": [path for path in downloaded_paths_for_page if path]
-                    }
-                    yield json.dumps(page_response) + "\n"
-                        
-                ## combine output
-                all_paths_to_upload.sort(key=lambda item: item['page_no'])
-                output_files = {}
-                output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
-                output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
-                output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
-                for p in all_paths_to_upload:
-                    page_no = p.pop('page_no')
-                    for file_type, local_path in p.items():
-                        with open(local_path, 'r', encoding='utf-8') as input_file:
-                            file_content = input_file.read()
-                        output_files[file_type].write(file_content)
-                        output_files[file_type].write("\n\n")
-
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
-
-                final_response = {
-                    "success": True,
-                    "total_pages": len(all_paths_to_upload),
-                    "output_s3_path": output_s3_path
-                }
-                yield json.dumps(final_response) + '\n'
-                        
-    except Exception as e:
-        error_msg = json.dumps({"success": False, "detail": str(e)})
-        yield error_msg + "\n"
-
-@app.post("/parse/pdf_stream")
-async def parse_pdf_stream(
-    input_s3_path: str = Form(...),
-    output_s3_path: str = Form(...),
-    prompt_mode: str = "prompt_layout_all_en",
-):
-    if not input_s3_path.lower().endswith('.pdf'):
-        raise HTTPException(
-            status_code=400, detail="Invalid file format. This endpoint only supports .pdf")
-
-    generator = stream_page_by_page_upload_generator(
-        input_s3_path=input_s3_path,
-        output_s3_path=output_s3_path,
-        prompt_mode=prompt_mode,
-    )
-    return StreamingResponse(generator, media_type="application/x-ndjson")
 
 #---------------------------directly send file to parser---------------------------
 
 @app.post("/directly_parse/image")
-async def parse_image_old(
+async def directly_parse_image(
     file: UploadFile = File(...),
     prompt_mode: str = "prompt_layout_all_en",
     fitz_preprocess: bool = False
@@ -692,7 +1004,7 @@ async def parse_image_old(
 
 
 @app.post("/directly_parse/pdf")
-async def parse_pdf_old(
+async def directly_parse_pdf(
     file: UploadFile = File(...),
     prompt_mode: str = "prompt_layout_all_en",
     fitz_preprocess: bool = False
@@ -779,7 +1091,7 @@ async def parse_pdf_old(
 
 
 @app.post("/directly_parse/file")
-async def parse_file_old(
+async def directly_parse_file(
     file: UploadFile = File(...),
     prompt_mode: str = "prompt_layout_all_en",
     fitz_preprocess: bool = False
@@ -804,9 +1116,9 @@ async def parse_file_old(
         await file.seek(0)  # Reset file pointer after reading
 
         if file_ext == '.pdf':
-            return await parse_pdf_old(file, prompt_mode, fitz_preprocess)
+            return await directly_parse_pdf(file, prompt_mode, fitz_preprocess)
         elif file_ext in ['.jpg', '.jpeg', '.png']:
-            return await parse_image_old(file, prompt_mode, fitz_preprocess)
+            return await directly_parse_image(file, prompt_mode, fitz_preprocess)
         else:
             raise HTTPException(status_code=400, detail="Unsupported file format")
 
