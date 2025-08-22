@@ -17,26 +17,51 @@ class PageInfo(BaseModel):
     h: float = Field(description='the height of page')
 
 
-def fitz_doc_to_image(doc, target_dpi=200, origin_dpi=None) -> dict:
-    """Convert fitz.Document to image, Then convert the image to numpy array.
+def fitz_doc_to_image(page, target_dpi=200, max_side=4500, max_pixels=None) -> dict:
+    """Convert a PyMuPDF page to a NumPy-compatible image array.
+
+    This function renders a single `fitz.Page` object to an image with a
+    target DPI, while ensuring constraints on maximum side length and
+    maximum pixel count are respected.
 
     Args:
-        doc (_type_): pymudoc page
-        dpi (int, optional): reset the dpi of dpi. Defaults to 200.
+        page (fitz.Page): A PyMuPDF page object to render.
+        target_dpi (int, optional): Desired resolution in DPI.
+            Defaults to 200.
+        max_side (int, optional): Maximum allowed width or height (in pixels)
+            of the rendered image. Defaults to 4500.
+        max_pixels (int, optional): Maximum allowed total number of pixels
+            in the rendered image. If provided, the image will be scaled down
+            to respect this constraint. Defaults to None.
 
     Returns:
-        dict:  {'img': numpy array, 'width': width, 'height': height }
+        PIL.Image.Image: The rendered page as a PIL Image object.
+
+    Raises:
+        ValueError: If the input `page` is not a `fitz.Page`.
     """
     from PIL import Image
-    mat = fitz.Matrix(target_dpi / 72, target_dpi / 72)
-    pm = doc.get_pixmap(matrix=mat, alpha=False)
+    # base zoom for requested DPI
+    zoom = target_dpi / 72.0
 
-    if pm.width > 4500 or pm.height > 4500:
-        mat = fitz.Matrix(72 / 72, 72 / 72)  # use fitz default dpi
-        pm = doc.get_pixmap(matrix=mat, alpha=False)
+    # predict size at requested DPI
+    w0 = page.rect.width * zoom
+    h0 = page.rect.height * zoom
 
-    image = Image.frombytes('RGB', (pm.width, pm.height), pm.samples)
-    return image
+    # compute an extra scale factor s to stay within limits
+    s = 1.0
+    if max_side:
+        s = min(s, max_side / max(w0, h0))
+    if max_pixels:
+        s = min(s, (max_pixels / (w0 * h0)) ** 0.5)
+
+    # don’t upscale beyond requested dpi
+    s = min(s, 1.0)
+
+    mat = fitz.Matrix(zoom * s, zoom * s)
+    pm = page.get_pixmap(matrix=mat, alpha=False)
+
+    return Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
 
 
 def load_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None) -> list:
