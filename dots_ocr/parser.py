@@ -397,7 +397,7 @@ def main():
     )
     args = parser.parse_args()
 
-    dots_ocr_parser = DotsOCRParser(
+    dots_parser = DotsOCRParser(
         ip=args.ip,
         port=args.port,
         model_name=args.model_name,
@@ -415,7 +415,7 @@ def main():
     fitz_preprocess = not args.no_fitz_preprocess
     if fitz_preprocess:
         print(f"Using fitz preprocess for image input, check the change of the image pixels")
-    result = dots_ocr_parser.parse_file(
+    result = dots_parser.parse_file(
         args.input_path, 
         prompt_mode=args.prompt,
         bbox=args.bbox,
