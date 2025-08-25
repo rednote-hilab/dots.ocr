@@ -93,7 +93,7 @@ if __name__=="__main__":
     )
     args = parser.parse_args()
 
-    dots_ocr_parser = DotsOCRParser(
+    dots_parser = DotsOCRParser(
         ip=args.ip,
         port=args.port,
         model_name=args.model_name,
@@ -119,7 +119,7 @@ if __name__=="__main__":
 
     def _excute(task):
         image_path, f_out = task
-        result = dots_ocr_parser.parse_file(
+        result = dots_parser.parse_file(
             image_path, 
             prompt_mode="prompt_layout_all_en",
             # prompt_mode="prompt_ocr",
