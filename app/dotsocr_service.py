@@ -15,12 +15,12 @@ from contextlib import asynccontextmanager
 from dots_ocr.parser import DotsOCRParser
 from dots_ocr.utils.consts import MIN_PIXELS, MAX_PIXELS
 import uvicorn
-import boto3
 import logging
 import asyncio
-from botocore.config import Config
 import httpx
 import re
+from app.utils.stroage import StorageManager
+from app.utils.redis import RedisConnector
 
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -51,21 +51,6 @@ app = FastAPI(
 )
 
 
-s3_client = boto3.client('s3')
-
-endpoint = os.getenv('OSS_ENDPOINT')
-access_key_id = os.getenv('OSS_ACCESS_KEY_ID')
-secret_access_key = os.getenv('OSS_ACCESS_KEY_SECRET')
-bucket_name = os.getenv('OSS_BUCKET_NAME')
-
-s3_oss_client = boto3.client(
-    's3',
-    aws_access_key_id=access_key_id,
-    aws_secret_access_key=secret_access_key,
-    endpoint_url="https://oss-cn-hongkong.aliyuncs.com",
-    config=Config(s3={"addressing_style": "virtual"},
-                  signature_version='s3'))
-
 
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_DIR = BASE_DIR / "input"
@@ -87,6 +72,10 @@ dots_parser = DotsOCRParser(
     max_pixels=MAX_PIXELS,
 )
 
+
+storage_manager = StorageManager()
+redis_connector = RedisConnector()
+
 def parse_s3_path(s3_path: str, is_s3):
     if is_s3:
         s3_path = s3_path.replace("s3://", "")
@@ -95,72 +84,10 @@ def parse_s3_path(s3_path: str, is_s3):
     bucket, *key_parts = s3_path.split("/")
     return bucket, "/".join(key_parts)
 
-def _get_existing_page_indices_s3_sync(bucket: str, prefix: str) -> set:
-    print(bucket, prefix)
-    existing_indices = set()
-    
-    paginator = s3_client.get_paginator('list_objects_v2')
-    pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
-    
-    pattern = re.compile(rf"^{re.escape(prefix)}(\d+)({re.escape('.json')}|{re.escape('.md')}|{re.escape('_nohf.md')})$")
-
-    count = {}
-    for page in pages:
-        if "Contents" in page:
-            for obj in page['Contents']:
-                key = obj['Key']
-                match = pattern.match(key)
-                if match:
-                    num = int(match.group(1))
-                    count[num] = count.get(num, 0) + 1
-                    if count[num] == 3:
-                        existing_indices.add(num)
-    print(existing_indices)
-    return existing_indices
-
-async def _get_existing_page_indices_s3(bucket: str, prefix: str) -> set:
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
-        None, _get_existing_page_indices_s3_sync, bucket, prefix
-    )
-
-async def upload_file(bucket, key, local_path, is_s3):
-    if not local_path or not os.path.exists(local_path):
-        return None
-    try:
-        if is_s3:
-            s3_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
-        else:
-            s3_oss_client.upload_file(Bucket=bucket, Key=key, Filename=local_path)
-        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
-        logging.info(f"Successfully uploaded {local_path} to {s3_full_path}")
-        # os.remove(local_path)
-        return s3_full_path
-    except Exception as e:
-        logging.error(f"Failed to upload {local_path} to s3://{bucket}/{key}: {e}")
-        return None
-        
-async def download_file(bucket, key, local_path, is_s3):
-    if not bucket or not key or not local_path:
-        logging.warning("Bucket, key, and local_path must be specified.")
-        return None
-    try:
-        if is_s3:
-            s3_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
-        else:
-            s3_oss_client.download_file(Bucket=bucket, Key=key, Filename=local_path)
-        s3_full_path = f"{'s3' if is_s3 else 'oss'}://{bucket}/{key}"
-        logging.info(f"Successfully downloaded {local_path} to {s3_full_path}")
-        return s3_full_path
-    except Exception as e:
-        logging.error(f"Failed to download s3://{bucket}/{key} to {local_path}: {e}")
-        return None
-
-
-#-------------------------------interact with database------------------------------
-
 class JobResponseModel(BaseModel):
     job_id: str
+    knowledgebase_id: str
+    workspace_id: str
     status: Literal["pending", "retrying", "processing", "completed", "failed", "canceled"] # canceled havn't implemented
     message: str
     is_s3: bool = True
@@ -174,6 +101,21 @@ class JobResponseModel(BaseModel):
 
     prompt_mode: str = "prompt_layout_all_en"
     fitz_preprocess: bool = False
+
+    def transform_to_map(self):
+        mapping = {
+            "url": self.output_s3_path,
+            "knowledgebaseId": self.knowledgebase_id,
+            "workspaceId": self.workspace_id,
+            "markdownUrl": self.md_url,
+            "jsonUrl": self.json_url,
+            "status": self.status
+        }
+        return {k: (v if v is not None else "") for k, v in mapping.items()}
+        
+async def update_redis(job: JobResponseModel):
+    redis_connector.hset(f"OCRJobId:{job.job_id}", mapping=job.transform_to_map())
+
 
 JobResponseDict: Dict[str, JobResponseModel] = {}
 JobLocks: Dict[str, asyncio.Lock] = {}
@@ -221,9 +163,13 @@ async def stream_and_upload_generator(
             async with output_lock:
 
                 # download file from S3
-                await download_file(
-                    bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
-                )
+                try:
+                    await storage_manager.download_file(
+                        bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
+                    )
+                    logging.info(f"download from s3/oss successfully: {input_s3_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
                 
                 # prepare local path
                 output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
@@ -247,7 +193,7 @@ async def stream_and_upload_generator(
                 JobResponse.page_prefix = f"{output_s3_path}/{output_file_name}_page_"
                 
                 s3_prefix = f"{output_key}/{output_file_name}_page_"
-                existing_pages = await _get_existing_page_indices_s3(output_bucket, s3_prefix)
+                existing_pages = await storage_manager._get_existing_page_indices_s3(output_bucket, s3_prefix)
  
                 # parse the PDF file and upload each page's output files
                 all_paths_to_upload = []
@@ -271,7 +217,7 @@ async def stream_and_upload_generator(
                             file_name = Path(local_path).name
                             s3_key = f"{output_key}/{file_name}"
                             task = asyncio.create_task(
-                                upload_file(output_bucket, s3_key, local_path, is_s3)
+                                storage_manager.upload_file(output_bucket, s3_key, local_path, is_s3)
                             )
                             page_upload_tasks.append(task)
                     uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)                    
@@ -306,7 +252,7 @@ async def stream_and_upload_generator(
                                 file_name = Path(local_path).name
                                 s3_key = f"{output_key}/{file_name}"
                                 task = asyncio.create_task(
-                                    download_file(output_bucket, s3_key, local_path, is_s3)
+                                    storage_manager.download_file(output_bucket, s3_key, local_path, is_s3)
                                 )
                                 page_download_tasks.append(task)
                         downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
@@ -336,9 +282,9 @@ async def stream_and_upload_generator(
                         output_files[file_type].write(file_content)
                         output_files[file_type].write("\n\n")
 
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
 
                 final_response = {
                     "success": True,
@@ -363,8 +309,10 @@ async def attempt_to_process_job(job: JobResponseModel):
     attempt_num = attempt_to_process_job.retry.statistics.get('attempt_number', 0) + 1
     if attempt_num == 1:
         job.status = "processing"
+        await update_redis(job)
     else:
         job.status = "retrying"
+        await update_redis(job)
     job.message = f"Processing job, attempt number: {attempt_num}"
 
     try:
@@ -393,10 +341,13 @@ async def worker(worker_id: str):
                 logging.error(f"Job {JobResponse.job_id} failed after 5 attempts. Final error: {e}", exc_info=True)
                 JobResponse.status = "failed"
                 JobResponse.message = f"Job failed after multiple retries. Final error: {str(e)}"
+                await update_redis(JobResponse)
 
             JobResponse.status = "completed"
             JobResponse.message = "Job completed successfully"
+            await update_redis(JobResponse)
             JobQueue.task_done()
+            
         except asyncio.CancelledError:
             logging.info(f"{worker_id} is shutting down.")
             break
@@ -438,6 +389,8 @@ async def parse_file(
     JobResponse = JobResponseModel(
         job_id=OCRJobId,
         status="pending",
+        knowledgebase_id=knowledgebaseId,
+        workspace_id=workspaceId,
         message="Job is pending",
         is_s3=is_s3,
         input_s3_path=input_s3_path,
@@ -447,7 +400,9 @@ async def parse_file(
     )
     JobResponseDict[OCRJobId] = JobResponse
     JobLocks[OCRJobId] = asyncio.Lock()
+    await update_redis(JobResponse)
     await JobQueue.put(OCRJobId)
+
     return JSONResponse({"OCRJobId": OCRJobId}, status_code=200)
 
 #------------------------------------stream-----------------------------------------
@@ -488,9 +443,13 @@ async def stream_page_by_page_upload_generator(
             async with output_lock:
 
                 # download file from S3
-                await download_file(
-                    bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
-                )
+                try:
+                    await storage_manager.download_file(
+                        bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
+                    )
+                    logging.info(f"download from s3/oss successfully: {input_s3_path}")
+                except Exception as e:
+                    raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
                 
                 # prepare local path
                 output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
@@ -508,7 +467,7 @@ async def stream_page_by_page_upload_generator(
                 # print(output_file_path)
                 # print(output_md_path)
                 s3_prefix = f"{output_key}/{output_file_name}_page_"
-                existing_pages = await _get_existing_page_indices_s3(output_bucket, s3_prefix)
+                existing_pages = await storage_manager._get_existing_page_indices_s3(output_bucket, s3_prefix)
 
                 # parse the PDF file and upload each page's output files
                 all_paths_to_upload = []
@@ -532,7 +491,7 @@ async def stream_page_by_page_upload_generator(
                             file_name = Path(local_path).name
                             s3_key = f"{output_key}/{file_name}"
                             task = asyncio.create_task(
-                                upload_file(output_bucket, s3_key, local_path, is_s3)
+                                storage_manager.upload_file(output_bucket, s3_key, local_path, is_s3)
                             )
                             page_upload_tasks.append(task)
                     uploaded_paths_for_page = await asyncio.gather(*page_upload_tasks)                    
@@ -567,7 +526,7 @@ async def stream_page_by_page_upload_generator(
                                 file_name = Path(local_path).name
                                 s3_key = f"{output_key}/{file_name}"
                                 task = asyncio.create_task(
-                                    download_file(output_bucket, s3_key, local_path, is_s3)
+                                    storage_manager.download_file(output_bucket, s3_key, local_path, is_s3)
                                 )
                                 page_download_tasks.append(task)
                         downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
@@ -597,9 +556,9 @@ async def stream_page_by_page_upload_generator(
                         output_files[file_type].write(file_content)
                         output_files[file_type].write("\n\n")
 
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
-                await upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
+                await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
 
                 final_response = {
                     "success": True,
@@ -668,18 +627,9 @@ async def parse(
             async with output_lock:
                 # download file from S3
                 try:
-                    if is_s3:
-                        s3_client.download_file(
-                            Bucket=file_bucket,
-                            Key=file_key,
-                            Filename=str(input_file_path)
-                        )
-                    else:
-                        s3_oss_client.download_file(
-                            Bucket=file_bucket,
-                            Key=file_key,
-                            Filename=str(input_file_path)
-                        )
+                    await storage_manager.download_file(
+                        bucket=file_bucket, key=file_key, local_path=str(input_file_path), is_s3 = is_s3
+                    )
                     logging.info(f"download from s3/oss successfully: {input_s3_path}")
                 except Exception as e:
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
@@ -761,38 +711,15 @@ async def parse(
 
                 # upload output files to S3
                 try:
-                    if is_s3:
-                        s3_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}.md",
-                            Filename=str(output_md_path)
-                        )
-                        s3_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}_nohf.md",
-                            Filename=str(output_md_nohf_path)
-                        )
-                        s3_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}.json",
-                            Filename=str(output_json_path)
-                        )
-                    else:
-                        s3_oss_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}.md",
-                            Filename=str(output_md_path)
-                        )
-                        s3_oss_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}_nohf.md",
-                            Filename=str(output_md_nohf_path)
-                        )
-                        s3_oss_client.upload_file(
-                            Bucket=output_bucket,
-                            Key=f"{output_key}/{output_file_name}.json",
-                            Filename=str(output_json_path)
-                        )
+                    storage_manager.upload_file(
+                        output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3
+                    )
+                    storage_manager.upload_file(
+                        output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3
+                    )
+                    storage_manager.upload_file(
+                        output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3
+                    )
                     logging.info(f"upload from s3/oss successfully: {output_file_path}")
                 except Exception as e:
                     raise RuntimeError(f"Failed to upload file from s3/oss: {str(e)}") from e
@@ -877,253 +804,253 @@ async def parse_file_old(
 
 
 
-#---------------------------directly send file to parser---------------------------
+# #---------------------------directly send file to parser---------------------------
 
-@app.post("/directly_parse/image")
-async def directly_parse_image(
-    file: UploadFile = File(...),
-    prompt_mode: str = "prompt_layout_all_en",
-    fitz_preprocess: bool = False
-):
-    """Parse a single image file"""
-    try:
-        # Validate upload file
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="Missing filename")
+# @app.post("/directly_parse/image")
+# async def directly_parse_image(
+#     file: UploadFile = File(...),
+#     prompt_mode: str = "prompt_layout_all_en",
+#     fitz_preprocess: bool = False
+# ):
+#     """Parse a single image file"""
+#     try:
+#         # Validate upload file
+#         if not file:
+#             raise HTTPException(status_code=400, detail="No file uploaded")
+#         if not file.filename:
+#             raise HTTPException(status_code=400, detail="Missing filename")
 
-        try:
-            file_ext = Path(file.filename).suffix.lower()
-        except TypeError:
-            raise HTTPException(status_code=400, detail="Invalid filename format")
+#         try:
+#             file_ext = Path(file.filename).suffix.lower()
+#         except TypeError:
+#             raise HTTPException(status_code=400, detail="Invalid filename format")
 
-        if file_ext not in ['.jpg', '.jpeg', '.png']:
-            raise HTTPException(
-                status_code=400, detail="Invalid image format. Supported: .jpg, .jpeg, .png")
+#         if file_ext not in ['.jpg', '.jpeg', '.png']:
+#             raise HTTPException(
+#                 status_code=400, detail="Invalid image format. Supported: .jpg, .jpeg, .png")
 
-        # Verify file content
-        file_content = await file.read()
-        if not file_content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
-        await file.seek(0)  # Reset file pointer after reading
+#         # Verify file content
+#         file_content = await file.read()
+#         if not file_content:
+#             raise HTTPException(status_code=400, detail="Uploaded file is empty")
+#         await file.seek(0)  # Reset file pointer after reading
 
-        # Create temp file with debug logging
-        print(f"DEBUG: Creating temp file for {file.filename}")
-        temp_dir = tempfile.mkdtemp()
-        print(f"DEBUG: Created temp dir {temp_dir}")
+#         # Create temp file with debug logging
+#         print(f"DEBUG: Creating temp file for {file.filename}")
+#         temp_dir = tempfile.mkdtemp()
+#         print(f"DEBUG: Created temp dir {temp_dir}")
 
-        temp_path = os.path.join(temp_dir, f"upload_{uuid.uuid4().hex}{file_ext}")
-        print(f"DEBUG: Temp file path will be {temp_path}")
+#         temp_path = os.path.join(temp_dir, f"upload_{uuid.uuid4().hex}{file_ext}")
+#         print(f"DEBUG: Temp file path will be {temp_path}")
 
-        # Save uploaded file with validation
-        file_content = await file.read()
-        print(f"DEBUG: Read {len(file_content)} bytes from upload")
+#         # Save uploaded file with validation
+#         file_content = await file.read()
+#         print(f"DEBUG: Read {len(file_content)} bytes from upload")
 
-        if not isinstance(temp_path, (str, bytes, os.PathLike)):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Invalid temp path type: {type(temp_path)}"
-            )
+#         if not isinstance(temp_path, (str, bytes, os.PathLike)):
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail=f"Invalid temp path type: {type(temp_path)}"
+#             )
 
-        with open(temp_path, "wb") as buffer:
-            buffer.write(file_content)
-        print(f"DEBUG: Saved {len(file_content)} bytes to {temp_path}")
+#         with open(temp_path, "wb") as buffer:
+#             buffer.write(file_content)
+#         print(f"DEBUG: Saved {len(file_content)} bytes to {temp_path}")
 
-        # Verify file was written
-        if not os.path.exists(temp_path):
-            raise HTTPException(
-                status_code=500,
-                detail="Failed to create temp file"
-            )
-        print(f"DEBUG: Temp file exists at {temp_path}")
+#         # Verify file was written
+#         if not os.path.exists(temp_path):
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail="Failed to create temp file"
+#             )
+#         print(f"DEBUG: Temp file exists at {temp_path}")
 
-        # Process the image with debug logging
-        print(f"DEBUG: Calling parser with: {temp_path}")
+#         # Process the image with debug logging
+#         print(f"DEBUG: Calling parser with: {temp_path}")
 
-        # Get absolute path and verify file exists
-        abs_temp_path = os.path.abspath(temp_path)
-        if not os.path.exists(abs_temp_path):
-            raise HTTPException(
-                status_code=500,
-                detail=f"Temp file not found at {abs_temp_path}"
-            )
+#         # Get absolute path and verify file exists
+#         abs_temp_path = os.path.abspath(temp_path)
+#         if not os.path.exists(abs_temp_path):
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail=f"Temp file not found at {abs_temp_path}"
+#             )
 
-        # Create and clean output directory
-        output_dir = tempfile.mkdtemp()
-        for f in os.listdir(output_dir):
-            os.remove(os.path.join(output_dir, f))
+#         # Create and clean output directory
+#         output_dir = tempfile.mkdtemp()
+#         for f in os.listdir(output_dir):
+#             os.remove(os.path.join(output_dir, f))
 
-        try:
-            results = dots_parser.parse_image(
-                input_path=abs_temp_path,
-                filename="api_image",
-                prompt_mode=prompt_mode,
-                save_dir=output_dir,
-                fitz_preprocess=fitz_preprocess
-            )
-            print(f"DEBUG: Parser completed successfully=={results}")
+#         try:
+#             results = dots_parser.parse_image(
+#                 input_path=abs_temp_path,
+#                 filename="api_image",
+#                 prompt_mode=prompt_mode,
+#                 save_dir=output_dir,
+#                 fitz_preprocess=fitz_preprocess
+#             )
+#             print(f"DEBUG: Parser completed successfully=={results}")
 
-            # Extract and return the relevant data
-            result = results[0]  # Single result for image
-            layout_info_path = result.get('layout_info_path')
-            full_layout_info = {}
-            if layout_info_path and os.path.exists(layout_info_path):
-                try:
-                    with open(layout_info_path, 'r', encoding='utf-8') as f:
-                        full_layout_info = json.load(f)
-                except Exception as e:
-                    print(f"WARNING: Failed to read layout info file: {str(e)}")
+#             # Extract and return the relevant data
+#             result = results[0]  # Single result for image
+#             layout_info_path = result.get('layout_info_path')
+#             full_layout_info = {}
+#             if layout_info_path and os.path.exists(layout_info_path):
+#                 try:
+#                     with open(layout_info_path, 'r', encoding='utf-8') as f:
+#                         full_layout_info = json.load(f)
+#                 except Exception as e:
+#                     print(f"WARNING: Failed to read layout info file: {str(e)}")
 
-        except Exception as e:
-            print(f"DEBUG: Parser error: {str(e)}")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Parser error: {str(e)}"
-            )
-        finally:
-            # Ensure cleanup even if parser fails
-            if os.path.exists(abs_temp_path):
-                os.remove(abs_temp_path)
-            if os.path.exists(temp_dir):
-                os.rmdir(temp_dir)
-            if os.path.exists(output_dir):
-                for f in os.listdir(output_dir):
-                    os.remove(os.path.join(output_dir, f))
-                os.rmdir(output_dir)
+#         except Exception as e:
+#             print(f"DEBUG: Parser error: {str(e)}")
+#             raise HTTPException(
+#                 status_code=500,
+#                 detail=f"Parser error: {str(e)}"
+#             )
+#         finally:
+#             # Ensure cleanup even if parser fails
+#             if os.path.exists(abs_temp_path):
+#                 os.remove(abs_temp_path)
+#             if os.path.exists(temp_dir):
+#                 os.rmdir(temp_dir)
+#             if os.path.exists(output_dir):
+#                 for f in os.listdir(output_dir):
+#                     os.remove(os.path.join(output_dir, f))
+#                 os.rmdir(output_dir)
 
-        return {
-            "success": True,
-            "total_pages": len(results),
-            "results": [{"page_no": 0,
-                         "full_layout_info": full_layout_info}]
-        }
+#         return {
+#             "success": True,
+#             "total_pages": len(results),
+#             "results": [{"page_no": 0,
+#                          "full_layout_info": full_layout_info}]
+#         }
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/directly_parse/pdf")
-async def directly_parse_pdf(
-    file: UploadFile = File(...),
-    prompt_mode: str = "prompt_layout_all_en",
-    fitz_preprocess: bool = False
-):
-    """Parse a PDF file (multi-page)"""
-    try:
-        # Validate upload file
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="Missing filename")
-
-        try:
-            if Path(file.filename).suffix.lower() != '.pdf':
-                raise HTTPException(
-                    status_code=400, detail="Invalid PDF format. Only .pdf files accepted")
-        except TypeError:
-            raise HTTPException(status_code=400, detail="Invalid filename format")
-
-        # Verify file content
-        file_content = await file.read()
-        if not file_content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
-        await file.seek(0)  # Reset file pointer after reading
-
-        # Create temp file
-        temp_dir = tempfile.mkdtemp()
-        temp_path = os.path.join(temp_dir, f"upload_{uuid.uuid4().hex}.pdf")
-
-        # Save uploaded file
-        with open(temp_path, "wb") as buffer:
-            buffer.write(await file.read())
-
-        # Create and clean output directory
-        output_dir = tempfile.mkdtemp()
-        for f in os.listdir(output_dir):
-            os.remove(os.path.join(output_dir, f))
-
-        try:
-            # Process the PDF
-            results = dots_parser.parse_pdf(
-                input_path=temp_path,
-                filename="api_pdf",
-                prompt_mode=prompt_mode,
-                save_dir=output_dir
-            )
-            print(f"DEBUG: Parser completed successfully=={results}")
-            # Format results for all pages
-            formatted_results = []
-            for result in results:
-                layout_info_path = result.get('layout_info_path')
-                full_layout_info = {}
-                if layout_info_path and os.path.exists(layout_info_path):
-                    try:
-                        with open(layout_info_path, 'r', encoding='utf-8') as f:
-                            full_layout_info = json.load(f)
-                    except Exception as e:
-                        print(f"WARNING: Failed to read layout info file: {str(e)}")
-
-                formatted_results.append({
-                    "page_no": result.get('page_no'),
-                    "full_layout_info": full_layout_info
-                })
-
-            return {
-                "success": True,
-                "total_pages": len(results),
-                "results": formatted_results
-            }
-
-        finally:
-            # Ensure cleanup even if parser fails
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            if os.path.exists(temp_dir):
-                os.rmdir(temp_dir)
-            if os.path.exists(output_dir):
-                for f in os.listdir(output_dir):
-                    os.remove(os.path.join(output_dir, f))
-                os.rmdir(output_dir)
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/directly_parse/file")
-async def directly_parse_file(
-    file: UploadFile = File(...),
-    prompt_mode: str = "prompt_layout_all_en",
-    fitz_preprocess: bool = False
-):
-    """Automatically detect file type and parse accordingly"""
-    try:
-        # Validate upload file
-        if not file:
-            raise HTTPException(status_code=400, detail="No file uploaded")
-        if not file.filename:
-            raise HTTPException(status_code=400, detail="Missing filename")
+# @app.post("/directly_parse/pdf")
+# async def directly_parse_pdf(
+#     file: UploadFile = File(...),
+#     prompt_mode: str = "prompt_layout_all_en",
+#     fitz_preprocess: bool = False
+# ):
+#     """Parse a PDF file (multi-page)"""
+#     try:
+#         # Validate upload file
+#         if not file:
+#             raise HTTPException(status_code=400, detail="No file uploaded")
+#         if not file.filename:
+#             raise HTTPException(status_code=400, detail="Missing filename")
 
-        try:
-            file_ext = Path(file.filename).suffix.lower()
-        except TypeError:
-            raise HTTPException(status_code=400, detail="Invalid filename format")
+#         try:
+#             if Path(file.filename).suffix.lower() != '.pdf':
+#                 raise HTTPException(
+#                     status_code=400, detail="Invalid PDF format. Only .pdf files accepted")
+#         except TypeError:
+#             raise HTTPException(status_code=400, detail="Invalid filename format")
 
-        # Verify file content
-        file_content = await file.read()
-        if not file_content:
-            raise HTTPException(status_code=400, detail="Uploaded file is empty")
-        await file.seek(0)  # Reset file pointer after reading
+#         # Verify file content
+#         file_content = await file.read()
+#         if not file_content:
+#             raise HTTPException(status_code=400, detail="Uploaded file is empty")
+#         await file.seek(0)  # Reset file pointer after reading
 
-        if file_ext == '.pdf':
-            return await directly_parse_pdf(file, prompt_mode, fitz_preprocess)
-        elif file_ext in ['.jpg', '.jpeg', '.png']:
-            return await directly_parse_image(file, prompt_mode, fitz_preprocess)
-        else:
-            raise HTTPException(status_code=400, detail="Unsupported file format")
+#         # Create temp file
+#         temp_dir = tempfile.mkdtemp()
+#         temp_path = os.path.join(temp_dir, f"upload_{uuid.uuid4().hex}.pdf")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+#         # Save uploaded file
+#         with open(temp_path, "wb") as buffer:
+#             buffer.write(await file.read())
+
+#         # Create and clean output directory
+#         output_dir = tempfile.mkdtemp()
+#         for f in os.listdir(output_dir):
+#             os.remove(os.path.join(output_dir, f))
+
+#         try:
+#             # Process the PDF
+#             results = dots_parser.parse_pdf(
+#                 input_path=temp_path,
+#                 filename="api_pdf",
+#                 prompt_mode=prompt_mode,
+#                 save_dir=output_dir
+#             )
+#             print(f"DEBUG: Parser completed successfully=={results}")
+#             # Format results for all pages
+#             formatted_results = []
+#             for result in results:
+#                 layout_info_path = result.get('layout_info_path')
+#                 full_layout_info = {}
+#                 if layout_info_path and os.path.exists(layout_info_path):
+#                     try:
+#                         with open(layout_info_path, 'r', encoding='utf-8') as f:
+#                             full_layout_info = json.load(f)
+#                     except Exception as e:
+#                         print(f"WARNING: Failed to read layout info file: {str(e)}")
+
+#                 formatted_results.append({
+#                     "page_no": result.get('page_no'),
+#                     "full_layout_info": full_layout_info
+#                 })
+
+#             return {
+#                 "success": True,
+#                 "total_pages": len(results),
+#                 "results": formatted_results
+#             }
+
+#         finally:
+#             # Ensure cleanup even if parser fails
+#             if os.path.exists(temp_path):
+#                 os.remove(temp_path)
+#             if os.path.exists(temp_dir):
+#                 os.rmdir(temp_dir)
+#             if os.path.exists(output_dir):
+#                 for f in os.listdir(output_dir):
+#                     os.remove(os.path.join(output_dir, f))
+#                 os.rmdir(output_dir)
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
+
+
+# @app.post("/directly_parse/file")
+# async def directly_parse_file(
+#     file: UploadFile = File(...),
+#     prompt_mode: str = "prompt_layout_all_en",
+#     fitz_preprocess: bool = False
+# ):
+#     """Automatically detect file type and parse accordingly"""
+#     try:
+#         # Validate upload file
+#         if not file:
+#             raise HTTPException(status_code=400, detail="No file uploaded")
+#         if not file.filename:
+#             raise HTTPException(status_code=400, detail="Missing filename")
+
+#         try:
+#             file_ext = Path(file.filename).suffix.lower()
+#         except TypeError:
+#             raise HTTPException(status_code=400, detail="Invalid filename format")
+
+#         # Verify file content
+#         file_content = await file.read()
+#         if not file_content:
+#             raise HTTPException(status_code=400, detail="Uploaded file is empty")
+#         await file.seek(0)  # Reset file pointer after reading
+
+#         if file_ext == '.pdf':
+#             return await directly_parse_pdf(file, prompt_mode, fitz_preprocess)
+#         elif file_ext in ['.jpg', '.jpeg', '.png']:
+#             return await directly_parse_image(file, prompt_mode, fitz_preprocess)
+#         else:
+#             raise HTTPException(status_code=400, detail="Unsupported file format")
+
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
     
 
 TARGET_URL = "http://localhost:8000/health"
