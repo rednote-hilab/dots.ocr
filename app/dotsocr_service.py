@@ -274,14 +274,22 @@ async def stream_and_upload_generator(
                 output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
                 output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
                 output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                all_json_data = []
                 for p in all_paths_to_upload:
                     page_no = p.pop('page_no')
                     for file_type, local_path in p.items():
-                        with open(local_path, 'r', encoding='utf-8') as input_file:
-                            file_content = input_file.read()
-                        output_files[file_type].write(file_content)
-                        output_files[file_type].write("\n\n")
-
+                        if file_type == 'json':
+                            with open(local_path, 'r', encoding='utf-8') as input_file:
+                                data = json.load(input_file)
+                            data = {"page_no": page_no, **data}
+                            all_json_data.append(data)
+                        else:
+                            with open(local_path, 'r', encoding='utf-8') as input_file:
+                                file_content = input_file.read()
+                            output_files[file_type].write(file_content)
+                            output_files[file_type].write("\n\n")
+                json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
+                
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3)
@@ -548,13 +556,21 @@ async def stream_page_by_page_upload_generator(
                 output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
                 output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
                 output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                all_json_data = []
                 for p in all_paths_to_upload:
                     page_no = p.pop('page_no')
                     for file_type, local_path in p.items():
-                        with open(local_path, 'r', encoding='utf-8') as input_file:
-                            file_content = input_file.read()
-                        output_files[file_type].write(file_content)
-                        output_files[file_type].write("\n\n")
+                        if file_type == 'json':
+                            with open(local_path, 'r', encoding='utf-8') as input_file:
+                                data = json.load(input_file)
+                            data = {"page_no": page_no, **data}
+                            all_json_data.append(data)
+                        else:
+                            with open(local_path, 'r', encoding='utf-8') as input_file:
+                                file_content = input_file.read()
+                            output_files[file_type].write(file_content)
+                            output_files[file_type].write("\n\n")
+                json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
 
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
@@ -676,10 +692,8 @@ async def parse(
                                 full_layout_info = json.load(f)
                         except Exception as e:
                             print(f"WARNING: Failed to read layout info file: {str(e)}")
-                    formatted_results.append({
-                        "page_no": result.get('page_no'),
-                        "full_layout_info": full_layout_info
-                    })
+                    full_layout_info = {"page_no": result.get('page_no', -1), **full_layout_info}
+                    formatted_results.append(full_layout_info)
 
                     md_content_path = result.get('md_content_path')
                     md_content = ""
@@ -711,13 +725,13 @@ async def parse(
 
                 # upload output files to S3
                 try:
-                    storage_manager.upload_file(
+                    await storage_manager.upload_file(
                         output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3
                     )
-                    storage_manager.upload_file(
+                    await storage_manager.upload_file(
                         output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3
                     )
-                    storage_manager.upload_file(
+                    await storage_manager.upload_file(
                         output_bucket, f"{output_key}/{output_file_name}.json", str(output_json_path), is_s3
                     )
                     logging.info(f"upload from s3/oss successfully: {output_file_path}")

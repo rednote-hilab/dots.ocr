@@ -82,7 +82,13 @@ class DotsOCRParser:
         os.makedirs(save_dir, exist_ok=True)
         result = {}
         cells, _ = post_process_output(response, prompt_mode, origin_image, image)
-        
+        width, height = origin_image.size
+        cells_with_size = {
+            "width": width,
+            "height": height,
+            "full_layout_info": cells
+        }
+
         try:
             image_with_layout = draw_layout_on_image(origin_image, cells)
         except Exception as e:
@@ -91,7 +97,7 @@ class DotsOCRParser:
             
         json_path = os.path.join(save_dir, f"{save_name}.json")
         with open(json_path, 'w', encoding="utf-8") as f:
-            json.dump(cells, f, ensure_ascii=False, indent=4)
+            json.dump(cells_with_size, f, ensure_ascii=False, indent=4)
         result['layout_info_path'] = json_path
 
         md_content = layoutjson2md(origin_image, cells, text_key='text')
