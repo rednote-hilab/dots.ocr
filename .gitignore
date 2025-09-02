@@ -122,4 +122,5 @@ temp/
 output/ 
 # playground/
 
-**.pdf
+app/input
+app/output

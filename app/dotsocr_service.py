@@ -429,7 +429,7 @@ async def stream_page_by_page_upload_generator(
     is_s3 = False
     if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
         is_s3 = True
-    elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
+    elif input_s3_path.startswith("oss://") and output_s3_path.startswith("oss://"):
         is_s3 = False
     else:
         raise RuntimeError("Input and output paths must both be s3:// or oss://")
@@ -616,12 +616,13 @@ async def parse(
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
     fitz_preprocess: bool = False,
-    parse_type: str = "pdf"  # or "image", default is "pdf"
+    parse_type: str = "pdf",  # or "image", default is "pdf"
+    rebuild_directory: bool = False
 ):
     is_s3 = False
     if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
         is_s3 = True
-    elif input_s3_path.startswith("oss://") and input_s3_path.startswith("oss://"):
+    elif input_s3_path.startswith("oss://") and output_s3_path.startswith("oss://"):
         is_s3 = False
     else:
         raise RuntimeError("Input and output paths must both be s3:// or oss://")
@@ -629,7 +630,6 @@ async def parse(
         file_bucket, file_key = parse_s3_path(input_s3_path, is_s3)
         input_file_path = INPUT_DIR / file_bucket / file_key
         input_file_path.parent.mkdir(parents=True, exist_ok=True)
-
 
         async with GLOBAL_LOCK_MANAGER:
             if input_s3_path not in PROCESSING_INPUT_LOCKS:
@@ -664,19 +664,27 @@ async def parse(
                 # try:
                 if parse_type == "image":
                     results = await dots_parser.parse_image(
-                        input_path=input_file_path,
+                        input_path=str(input_file_path),
                         filename=output_file_name,
                         prompt_mode=prompt_mode,
                         save_dir=output_file_path,
                         fitz_preprocess=fitz_preprocess
                     )
                 else:
-                    results = await dots_parser.parse_pdf(
-                        input_path=input_file_path,
-                        filename=output_file_name,
-                        prompt_mode=prompt_mode,
-                        save_dir=output_file_path
-                    )
+                    if rebuild_directory:
+                        results = await dots_parser.parse_pdf_rebuild_directory(
+                            input_path=input_file_path,
+                            filename=output_file_name,
+                            prompt_mode=prompt_mode,
+                            save_dir=output_file_path
+                        )
+                    else:
+                        results = await dots_parser.parse_pdf(
+                            input_path=input_file_path,
+                            filename=output_file_name,
+                            prompt_mode=prompt_mode,
+                            save_dir=output_file_path
+                        )
 
 
                 # Format results for all pages
@@ -780,7 +788,8 @@ async def parse_pdf_old(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
-    fitz_preprocess: bool = False
+    fitz_preprocess: bool = Form(False),
+    rebuild_directory: bool = Form(False)
 ):
     try:
         file_ext = Path(input_s3_path).suffix.lower()
@@ -790,7 +799,7 @@ async def parse_pdf_old(
         raise HTTPException(
             status_code=400, detail="Invalid image format. Supported: .pdf")
 
-    return await parse(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess, parse_type="pdf")
+    return await parse(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess, parse_type="pdf", rebuild_directory=rebuild_directory)
 
 
 @app.post("/parse/file_old")
@@ -798,7 +807,8 @@ async def parse_file_old(
     input_s3_path: str = Form(...),
     output_s3_path: str = Form(...),
     prompt_mode: str = "prompt_layout_all_en",
-    fitz_preprocess: bool = False
+    fitz_preprocess: bool = False,
+    rebuild_directory: bool = False
 ):
     try:
         try:
@@ -807,7 +817,7 @@ async def parse_file_old(
             raise HTTPException(status_code=400, detail="Invalid filename format")
 
         if file_ext == '.pdf':
-            return await parse_pdf_old(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
+            return await parse_pdf_old(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess, rebuild_directory)
         elif file_ext in ['.jpg', '.jpeg', '.png']:
             return await parse_image_old(input_s3_path, output_s3_path, prompt_mode, fitz_preprocess)
         else:
@@ -1114,5 +1124,3 @@ async def health():
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=6008)
-
-
