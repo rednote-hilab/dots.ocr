@@ -59,18 +59,71 @@ class DotsOCRParser:
 
     def _load_hf_model(self):
         import torch
+        import os
         from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
         from qwen_vl_utils import process_vision_info
 
-        model_path = "./weights/DotsOCR"
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            attn_implementation="flash_attention_2",
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True
-        )
-        self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
+        # Try local model first, fallback to HuggingFace Hub
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        local_model_path = os.path.join(script_dir, "weights", "DotsOCR")
+        
+        if os.path.exists(local_model_path) and os.listdir(local_model_path):
+            model_path = local_model_path
+            print(f"Using local model at: {model_path}")
+        else:
+            model_path = "rednote-hilab/dots.ocr"
+            print(f"Using HuggingFace Hub model: {model_path}")
+        
+        # Try without flash_attention_2 first for CPU compatibility
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                trust_remote_code=True
+            )
+        except Exception as e:
+            print(f"Failed to load model without flash attention: {e}")
+            # Fallback: try with flash attention if available
+            try:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_path,
+                    attn_implementation="flash_attention_2",
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                    trust_remote_code=True
+                )
+            except Exception as e2:
+                print(f"Failed to load model with flash attention: {e2}")
+                raise e2
+        
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True, use_fast=True)
+        
+        # Explicitly disable truncation on the tokenizer to prevent image token mismatch
+        if hasattr(self.processor, 'tokenizer'):
+            self.processor.tokenizer.truncation = False
+            self.processor.tokenizer.model_max_length = 131072  # Set high limit
+        
+        # If the processor warns about deprecated video config and has no video_processor loaded,
+        # rewrite configs locally and reload to create a proper video_preprocessor.json.
+        try:
+            needs_video_fix = getattr(self.processor, "video_processor", None) is None
+        except Exception:
+            needs_video_fix = False
+        if needs_video_fix:
+            try:
+                # Prefer saving into a local model directory to avoid writing to cache only
+                if os.path.isdir(local_model_path):
+                    save_dir = local_model_path
+                else:
+                    # Fallback: create a local processor subdir alongside weights
+                    save_dir = os.path.join(script_dir, "weights", "DotsOCR")
+                    os.makedirs(save_dir, exist_ok=True)
+                self.processor.save_pretrained(save_dir)
+                # Reload to pick up split video_preprocessor.json
+                self.processor = AutoProcessor.from_pretrained(save_dir, trust_remote_code=True, use_fast=True)
+            except Exception as e:
+                print(f"Warning: could not auto-fix video processor config: {e}")
         self.process_vision_info = process_vision_info
 
     def _inference_with_hf(self, image, prompt):
@@ -87,22 +140,56 @@ class DotsOCRParser:
             }
         ]
 
-        # Preparation for inference
-        text = self.processor.apply_chat_template(
-            messages, 
-            tokenize=False, 
-            add_generation_prompt=True
-        )
-        image_inputs, video_inputs = self.process_vision_info(messages)
-        inputs = self.processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt",
-        )
+        # Preparation for inference - try direct processing without chat template
+        # to avoid image token mismatch issues
+        try:
+            # First try: process messages directly with the processor
+            inputs = self.processor(
+                text=[prompt],
+                images=[image] if image is not None else None,
+                padding=True,
+                truncation=False,
+                return_tensors="pt"
+            )
+        except Exception as e1:
+            # Fallback to chat template approach
+            print(f"Direct processing failed, trying chat template: {e1}")
+            text = self.processor.apply_chat_template(
+                messages, 
+                tokenize=False, 
+                add_generation_prompt=True
+            )
+            image_inputs, video_inputs = self.process_vision_info(messages)
+            
+            # Try different approaches to handle the tokenization
+            proc_kwargs = {
+                "text": [text],
+                "images": image_inputs,
+                "padding": True,
+                "return_tensors": "pt",
+            }
+            if video_inputs:
+                proc_kwargs["videos"] = video_inputs
+            
+            try:
+                # Try without any truncation params
+                inputs = self.processor(**proc_kwargs)
+            except ValueError as e2:
+                if "image" in str(e2) and "token" in str(e2):
+                    # Last resort: try to manually handle the text
+                    print(f"Warning: Image token mismatch, trying manual approach: {e2}")
+                    # Remove image tokens from text and let processor add them
+                    import re
+                    cleaned_text = re.sub(r'<\|imgpad\|>+', '', text)
+                    cleaned_text = re.sub(r'<\|image_pad\|>+', '', cleaned_text)
+                    proc_kwargs["text"] = [cleaned_text]
+                    inputs = self.processor(**proc_kwargs)
+                else:
+                    raise
 
-        inputs = inputs.to("cuda")
+        # Move inputs to the same device as the model
+        device = next(self.model.parameters()).device
+        inputs = inputs.to(device)
 
         # Inference: Generation of the output
         generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
