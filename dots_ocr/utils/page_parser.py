@@ -16,7 +16,7 @@ class PageParser:
     """
     Asynchronous parser for image or PDF files.
     """
-    def __init__(self, ip='localhost', port=8000, model_name='model', temperature=0.1, top_p=1.0,
+    def __init__(self, ip='localhost', port=8000, model_name='dotsocr', temperature=0.1, top_p=1.0,
                  max_completion_tokens=32768, concurrency_limit=16, dpi=200, min_pixels=None, max_pixels=None):
         self.dpi = dpi
         self.ip = ip

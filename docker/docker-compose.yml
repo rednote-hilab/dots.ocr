@@ -36,7 +36,7 @@ services:
             --tensor-parallel-size 1 \
             --gpu-memory-utilization 0.8 \
             --chat-template-content-format string \
-            --served-model-name dotsocr-model \
+            --served-model-name dotsocr \
             --trust-remote-code
 
 

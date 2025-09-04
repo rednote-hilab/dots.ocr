@@ -20,7 +20,7 @@ def image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(buffered.getvalue()).decode('utf-8')
 
 class DotsOCRParser:
-    def __init__(self, ip='localhost', port=8000, model_name='model', temperature=0.1, top_p=1.0,
+    def __init__(self, ip='localhost', port=8000, model_name='dotsocr', temperature=0.1, top_p=1.0,
                  max_completion_tokens=32768, concurrency_limit=16, dpi=200, min_pixels=None, max_pixels=None):
         self.parser = PageParser(
             ip=ip,
@@ -54,15 +54,21 @@ class DotsOCRParser:
         total_pages = len(images_origin)
         print(f"Parsing PDF with {total_pages} pages using concurrency of {self.parser.concurrency_limit}...")
 
+
+        semaphore = asyncio.Semaphore(self.parser.concurrency_limit)
+        async def worker(page_idx, image):
+            async with semaphore:
+                return await self.parser._parse_single_image(
+                    origin_image=image,
+                    prompt_mode=prompt_mode,
+                    save_dir=save_dir,
+                    save_name=filename,
+                    source="pdf",
+                    page_idx=page_idx,
+                )
         tasks = [
-            self.parser._parse_single_image(
-                origin_image=image,
-                prompt_mode=prompt_mode,
-                save_dir=save_dir,
-                save_name=filename,
-                source="pdf",
-                page_idx=i,
-            ) for i, image in enumerate(images_origin)
+            worker(i, image) 
+            for i, image in enumerate(images_origin)
         ]
 
         results = await tqdm.gather(*tasks, desc="Processing PDF pages")
@@ -86,13 +92,19 @@ class DotsOCRParser:
         total_pages = len(images_origin)
         print(f"Parsing PDF with {total_pages} pages using concurrency of {self.parser.concurrency_limit}...")
 
+
+        semaphore = asyncio.Semaphore(self.parser.concurrency_limit)
+        async def worker(page_idx, image):
+            async with semaphore:
+                return await self.parser._parse_single_image_do_not_save(
+                    origin_image=image,
+                    prompt_mode=prompt_mode,
+                    source="pdf",
+                    page_idx=page_idx
+                )
         tasks = [
-            self.parser._parse_single_image_do_not_save(
-                origin_image=image,
-                prompt_mode=prompt_mode,
-                source="pdf",
-                page_idx=i,
-            ) for i, image in enumerate(images_origin)
+            worker(i, image)
+            for i, image in enumerate(images_origin)
         ]
 
         cells_list = await tqdm.gather(*tasks, desc="Processing PDF pages")
@@ -108,13 +120,11 @@ class DotsOCRParser:
     
         return results
 
-    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir, batch_size=16, existing_pages=set()):
-
-        loop = asyncio.get_running_loop()
+    async def parse_pdf_stream(self, input_path, filename, prompt_mode, save_dir, existing_pages=set()):
         
         total_pages = get_pdf_page_count_fitz(input_path) - len(existing_pages)
 
-        semaphore = asyncio.Semaphore(batch_size)
+        semaphore = asyncio.Semaphore(self.parser.concurrency_limit)
         tasks = []
         with tqdm(total=total_pages, desc="Processing PDF pages (stream)") as pbar:
             async def worker(page_idx, image):

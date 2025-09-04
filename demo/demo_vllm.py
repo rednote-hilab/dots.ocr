@@ -13,7 +13,7 @@ from dots_ocr.model.inference import inference_with_vllm
 parser = argparse.ArgumentParser()
 parser.add_argument("--ip", type=str, default="localhost")
 parser.add_argument("--port", type=str, default="8000")
-parser.add_argument("--model_name", type=str, default="model")
+parser.add_argument("--model_name", type=str, default="dotsocr")
 parser.add_argument("--prompt_mode", type=str, default="prompt_layout_all_en")
 
 args = parser.parse_args()
