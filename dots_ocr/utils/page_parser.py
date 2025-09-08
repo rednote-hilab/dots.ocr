@@ -51,8 +51,9 @@ class PageParser:
             
     def _prepare_image_and_prompt(self, origin_image, prompt_mode, source, fitz_preprocess, bbox):
         """Synchronous, CPU-bound part of image preparation."""
+        scale_factor = 1.0
         if source == 'image' and fitz_preprocess:
-            image = get_image_by_fitz_doc(origin_image, target_dpi=self.dpi)
+            image, scale_factor = get_image_by_fitz_doc(origin_image, target_dpi=self.dpi)
             image = fetch_image(image, min_pixels=self.min_pixels, max_pixels=self.max_pixels)
         else:
             image = fetch_image(origin_image, min_pixels=self.min_pixels, max_pixels=self.max_pixels)
@@ -63,17 +64,17 @@ class PageParser:
             bbox = pre_process_bboxes(origin_image, [bbox], input_width=image.width, input_height=image.height)[0]
             prompt += str(bbox)
         
-        return image, prompt
+        return image, prompt, scale_factor # only image withe fitz_preprocess will receive scale_factor for use
     
-    def _process_and_save_results(self, response, prompt_mode, save_dir, save_name, origin_image, image):
+    def _process_and_save_results(self, response, prompt_mode, save_dir, save_name, origin_image, image, scale_factor = 1.0):
         """Synchronous, CPU/IO-bound part of post-processing and saving."""
         os.makedirs(save_dir, exist_ok=True)
         result = {}
-        cells, _ = post_process_output(response, prompt_mode, origin_image, image)
+        cells, _ = post_process_output(response, prompt_mode, origin_image, image, scale_factor = scale_factor)
         width, height = origin_image.size
         cells_with_size = {
-            "width": width,
-            "height": height,
+            "width": int(width / scale_factor),
+            "height": int(height / scale_factor),
             "full_layout_info": cells
         }
 
@@ -103,14 +104,14 @@ class PageParser:
 
         return result
 
-    def _process_results(self, response, prompt_mode, origin_image, image, page_idx = None):
+    def _process_results(self, response, prompt_mode, origin_image, image, page_idx = None, scale_factor=1.0):
         """Synchronous, CPU/IO-bound part of post-processing and saving."""
         result = {}
-        cells, _ = post_process_output(response, prompt_mode, origin_image, image)
+        cells, _ = post_process_output(response, prompt_mode, origin_image, image, scale_factor = scale_factor)
         width, height = origin_image.size
         cells_with_size = {
-            "width": width,
-            "height": height,
+            "width": int(width / scale_factor),
+            "height": int(height / scale_factor),
             "full_layout_info": cells
         }
         if page_idx is not None:
@@ -143,13 +144,13 @@ class PageParser:
         return result
 
 
-    async def _parse_single_image_do_not_save(self, origin_image, prompt_mode, source="image", page_idx=0, bbox=None, fitz_preprocess=False):
+    async def _parse_single_image_do_not_save(self, origin_image, prompt_mode, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
         """Asynchronous pipeline for a single image."""
         async with self.semaphore:
             loop = asyncio.get_running_loop()
             
             # 1. Run CPU-bound image prep in executor
-            image, prompt = await loop.run_in_executor(
+            image, prompt, _ = await loop.run_in_executor(
                 self.cpu_executor, self._prepare_image_and_prompt, origin_image, prompt_mode, source, fitz_preprocess, bbox
             )
             
@@ -158,28 +159,27 @@ class PageParser:
             
             # 3. Run CPU/IO-bound post-processing and saving in executor
             cells = await loop.run_in_executor(
-                self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx
+                self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx, scale_factor
             )
             
             return cells
 
-    async def _parse_single_image(self, origin_image, prompt_mode, save_dir, save_name, source="image", page_idx=0, bbox=None, fitz_preprocess=False):
+    async def _parse_single_image(self, origin_image, prompt_mode, save_dir, save_name, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
         """Asynchronous pipeline for a single image."""
         async with self.semaphore:
             loop = asyncio.get_running_loop()
             
             # 1. Run CPU-bound image prep in executor
-            image, prompt = await loop.run_in_executor(
+            image, prompt, _ = await loop.run_in_executor(
                 self.cpu_executor, self._prepare_image_and_prompt, origin_image, prompt_mode, source, fitz_preprocess, bbox
             )
-            
             # 2. Make non-blocking network call for inference
             response = await self._inference_with_vllm(image, prompt)
             
             # 3. Run CPU/IO-bound post-processing and saving in executor
             save_name_page = f"{save_name}_page_{page_idx}" if source == 'pdf' else save_name
             result = await loop.run_in_executor(
-                self.cpu_executor, self._process_and_save_results, response, prompt_mode, save_dir, save_name_page, origin_image, image
+                self.cpu_executor, self._process_and_save_results, response, prompt_mode, save_dir, save_name_page, origin_image, image, scale_factor
             )
             
             result['page_no'] = page_idx

@@ -191,6 +191,6 @@ def get_image_by_fitz_doc(image, target_dpi=200):
     pdf_bytes = fitz.open(stream=data_bytes).convert_to_pdf()
     doc = fitz.open('pdf', pdf_bytes)
     page = doc[0]
-    image_fitz = fitz_doc_to_image(page, target_dpi=target_dpi, origin_dpi=origin_dpi)
+    image_fitz, scale_factor = fitz_doc_to_image(page, target_dpi=target_dpi, origin_dpi=origin_dpi)
 
     return image_fitz

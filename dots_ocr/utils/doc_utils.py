@@ -43,11 +43,12 @@ def fitz_doc_to_image(doc, target_dpi=200, origin_dpi=None) -> dict:
         pm = doc.get_pixmap(matrix=mat, alpha=False)
 
     image = Image.frombytes('RGB', (pm.width, pm.height), pm.samples)
-    return image
+    return image, target_dpi / 72
 
 
 def load_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None) -> list:
     images = []
+    scale_factors = []
     with fitz.open(pdf_file) as doc:
         pdf_page_num = doc.page_count
         end_page_id = (
@@ -62,9 +63,10 @@ def load_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None) -
         for index in range(0, doc.page_count):
             if start_page_id <= index <= end_page_id:
                 page = doc[index]
-                img = fitz_doc_to_image(page, target_dpi=dpi)
+                img, scale_factor = fitz_doc_to_image(page, target_dpi=dpi)
                 images.append(img)
-    return images
+                scale_factors.append(scale_factor)
+    return images, scale_factors
 
 def iter_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None, existing_pages=set()):
     with fitz.open(pdf_file) as doc:
@@ -82,5 +84,5 @@ def iter_images_from_pdf(pdf_file, dpi=200, start_page_id=0, end_page_id=None, e
             if index in existing_pages:
                 continue
             page = doc[index]
-            img = fitz_doc_to_image(page, target_dpi=dpi)
-            yield index, img
+            img, scale_factor = fitz_doc_to_image(page, target_dpi=dpi)
+            yield index, img, scale_factor

@@ -49,7 +49,8 @@ class DotsOCRParser:
         
         print(f"Loading PDF: {input_path}")
         # Run blocking PDF loading in executor
-        images_origin = await loop.run_in_executor(self.parser.cpu_executor, load_images_from_pdf, input_path)
+
+        images_origin, scale_factors = await loop.run_in_executor(self.parser.cpu_executor, load_images_from_pdf, input_path)
         
         total_pages = len(images_origin)
         print(f"Parsing PDF with {total_pages} pages using concurrency of {self.parser.concurrency_limit}...")
@@ -65,6 +66,7 @@ class DotsOCRParser:
                     save_name=filename,
                     source="pdf",
                     page_idx=page_idx,
+                    scale_factor=scale_factors[page_idx]
                 )
         tasks = [
             worker(i, image) 
@@ -87,7 +89,7 @@ class DotsOCRParser:
         
         print(f"Loading PDF: {input_path}")
         # Run blocking PDF loading in executor
-        images_origin = await loop.run_in_executor(self.parser.cpu_executor, load_images_from_pdf, input_path)
+        images_origin, scale_factors = await loop.run_in_executor(self.parser.cpu_executor, load_images_from_pdf, input_path)
         
         total_pages = len(images_origin)
         print(f"Parsing PDF with {total_pages} pages using concurrency of {self.parser.concurrency_limit}...")
@@ -100,7 +102,8 @@ class DotsOCRParser:
                     origin_image=image,
                     prompt_mode=prompt_mode,
                     source="pdf",
-                    page_idx=page_idx
+                    page_idx=page_idx,
+                    scale_factor=scale_factors[page_idx]
                 )
         tasks = [
             worker(i, image)

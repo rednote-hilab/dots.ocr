@@ -148,9 +148,9 @@ def post_process_cells(
     cells: List[Dict], 
     input_width,  # server input width, also has smart_resize in server
     input_height,
-    factor: int = 28,
     min_pixels: int = 3136, 
-    max_pixels: int = 11289600
+    max_pixels: int = 11289600,
+    scale_factor = 1.0
 ) -> List[Dict]:
     """
     Post-processes cell bounding boxes, converting coordinates from the resized dimensions back to the original dimensions.
@@ -160,9 +160,9 @@ def post_process_cells(
         cells: A list of cells containing bounding box information.
         input_width: The width of the input image sent to the server.
         input_height: The height of the input image sent to the server.
-        factor: Resizing factor.
         min_pixels: Minimum number of pixels.
         max_pixels: Maximum number of pixels.
+        scale_factor: Resizing scale_factor.
         
     Returns:
         A list of post-processed cells.
@@ -181,10 +181,10 @@ def post_process_cells(
     for cell in cells:
         bbox = cell['bbox']
         bbox_resized = [
-            int(float(bbox[0]) / scale_x), 
-            int(float(bbox[1]) / scale_y),
-            int(float(bbox[2]) / scale_x), 
-            int(float(bbox[3]) / scale_y)
+            int(float(bbox[0]) / scale_x / scale_factor), 
+            int(float(bbox[1]) / scale_y / scale_factor),
+            int(float(bbox[2]) / scale_x / scale_factor), 
+            int(float(bbox[3]) / scale_y / scale_factor),
         ]
         cell_copy = cell.copy()
         cell_copy['bbox'] = bbox_resized
@@ -199,7 +199,7 @@ def is_legal_bbox(cells):
             return False
     return True
 
-def post_process_output(response, prompt_mode, origin_image, input_image, min_pixels=None, max_pixels=None):
+def post_process_output(response, prompt_mode, origin_image, input_image, min_pixels=None, max_pixels=None, scale_factor=1.0):
     if prompt_mode in ["prompt_ocr", "prompt_table_html", "prompt_table_latex", "prompt_formula_latex"]:
         return response
 
@@ -213,7 +213,8 @@ def post_process_output(response, prompt_mode, origin_image, input_image, min_pi
             input_image.width,
             input_image.height,
             min_pixels=min_pixels,
-            max_pixels=max_pixels
+            max_pixels=max_pixels,
+            scale_factor=scale_factor
         )
         return cells, False
     except Exception as e:
