@@ -1135,6 +1135,54 @@ print(output_text)
 ### Hugginface inference with CPU
 Please refer to [CPU inference](https://github.com/rednote-hilab/dots.ocr/issues/1#issuecomment-3148962536)
 
+### Huggingface inference with MPS
+
+For Apple Silicon Mac users, you can use MPS (Metal Performance Shaders) for inference. Follow these steps to set up MPS inference:
+
+#### 1. Installation Setup
+ 
+```shell 
+# Install dependencies for Mac:
+pip install -r requirements-mac.txt
+```
+
+#### 2. Adjust Pixel Limits for M4 with 16GB Memory
+
+Based on testing, adjust the pixel constants in `dots_ocr/utils/consts.py` or  gradio UI `Advanced Configuration`
+
+Inference sampling on M4 with 16GB memory:
+
+
+```python
+MIN_PIXELS = 3136
+MAX_PIXELS = 1289600
+```
+ 
+
+#### 3. Test Scripts
+
+Two scripts are included for testing on MPS:
+
+1. Original example script:
+```bash
+python3 demo/dots_mps_parse.py /path/to/your/document.pdf
+```
+
+2. Gradio demo:
+```bash
+python3 demo/demo_gradio.py --use_hf
+```
+
+#### Performance Notes
+
+Based on testing with the adjusted pixel limits:
+- Small images are properly handled without excessive upscaling
+- Prevents entropy collapse in the tail of long table sequences
+- Avoids mixed languages/garbled text in the later part of outputs
+- Optimized for M4 with 16GB memory configuration
+
+The pixel limits are carefully chosen to balance performance and quality while fitting within memory constraints on Apple Silicon devices.
+
 
 ## 3. Document Parse
 **Based on vLLM server**, you can parse an image or a pdf file using the following commands:

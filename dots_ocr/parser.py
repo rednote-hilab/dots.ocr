@@ -1,9 +1,11 @@
 import os
 import json
+import concurrent.futures
 from tqdm import tqdm
-from multiprocessing.pool import ThreadPool, Pool
+from concurrent.futures import ThreadPoolExecutor
 import argparse
 
+import torch
 
 from dots_ocr.model.inference import inference_with_vllm
 from dots_ocr.utils.consts import image_extensions, MIN_PIXELS, MAX_PIXELS
@@ -32,6 +34,7 @@ class DotsOCRParser:
             min_pixels=None,
             max_pixels=None,
             use_hf=False,
+            use_mps=False,
         ):
         self.dpi = dpi
 
@@ -49,9 +52,19 @@ class DotsOCRParser:
         self.max_pixels = max_pixels
 
         self.use_hf = use_hf
+        self.use_mps = use_mps
+        
+        # Set environment variables for offline caches when using MPS
+        if self.use_mps:
+            os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+            os.environ.setdefault("HF_HUB_OFFLINE", "1")
+            
         if self.use_hf:
             self._load_hf_model()
             print(f"use hf model, num_thread will be set to 1")
+        elif self.use_mps:
+            self._load_hf_model()
+            print(f"use mps model, num_thread will be set to 1")
         else:
             print(f"use vllm model, num_thread will be set to {self.num_thread}")
         assert self.min_pixels is None or self.min_pixels >= MIN_PIXELS
@@ -59,18 +72,55 @@ class DotsOCRParser:
 
     def _load_hf_model(self):
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, AutoConfig
         from qwen_vl_utils import process_vision_info
+        import types as _types
 
         model_path = "./weights/DotsOCR"
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_path,
-            attn_implementation="flash_attention_2",
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True
-        )
-        self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
+        
+        # MPS-specific configuration
+        if self.use_mps:
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            dtype = torch.float16 if device == "mps" else torch.float32
+            
+            # Force SDPA & disable SWA for MPS compatibility
+            config = AutoConfig.from_pretrained(
+                model_path, trust_remote_code=True, local_files_only=True
+            )
+            if getattr(config, "vision_config", None) is not None:
+                config.vision_config.attn_implementation = "sdpa"
+            else:
+                setattr(config, "attn_implementation", "sdpa")
+            if hasattr(config, "use_sliding_window"):
+                config.use_sliding_window = False
+            if hasattr(config, "sliding_window"):
+                config.sliding_window = None
+                
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                config=config,
+                attn_implementation="sdpa",
+                torch_dtype=dtype,
+                device_map="auto",
+                trust_remote_code=True
+            )
+            if device == "mps":
+                self.model.to("mps")
+                # CRITICAL: force fp16 to avoid dtype mismatch on MPS
+                orig_forward_func = self.model.vision_tower.forward.__func__  # unbound function
+                def _forward_no_bf16(self, hidden_states, grid_thw, bf16=True):
+                    return orig_forward_func(self, hidden_states, grid_thw, bf16=False)
+                self.model.vision_tower.forward = _types.MethodType(_forward_no_bf16, self.model.vision_tower)
+        else:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                attn_implementation="flash_attention_2",
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                trust_remote_code=True
+            )
+            
+        self.processor = AutoProcessor.from_pretrained(model_path, trust_remote_code=True, use_fast=True)
         self.process_vision_info = process_vision_info
 
     def _inference_with_hf(self, image, prompt):
@@ -102,16 +152,90 @@ class DotsOCRParser:
             return_tensors="pt",
         )
 
-        inputs = inputs.to("cuda")
+        if self.use_mps:
+            import torch
+            device = "mps" if torch.backends.mps.is_available() else "cpu"
+            dtype = torch.float16 if device == "mps" else torch.float32
+            
+            # Move to device + force FP16 on floats for MPS
+            for k, v in list(inputs.items()):
+                if isinstance(v, torch.Tensor):
+                    v = v.to(device)
+                    if torch.is_floating_point(v):
+                        v = v.to(dtype=dtype)
+                    inputs[k] = v
+        else:
+            inputs = inputs.to("cuda")
 
-        # Inference: Generation of the output
-        generated_ids = self.model.generate(**inputs, max_new_tokens=24000)
-        generated_ids_trimmed = [
-            out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        response = self.processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
+        # Use streaming inference with IteratorStreamer
+        from transformers import TextIteratorStreamer
+        import threading
+        import time
+        
+        # Create iterator streamer for streaming output
+        streamer = TextIteratorStreamer(
+            self.processor.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+            timeout=100,
+        )
+        generated_text = []
+
+        # Start generation in a separate thread
+        def generate():
+            gen_kwargs = dict(
+                max_new_tokens=24000,   
+                do_sample=False,
+                temperature=None,
+                # Performance optimizations
+                use_cache=True,  # Enable KV cache for faster generation
+                num_beams=1,  # Use greedy decoding for speed
+                early_stopping=True,  # Stop early if EOS token is generated
+                pad_token_id=self.processor.tokenizer.eos_token_id,
+                eos_token_id=[self.processor.tokenizer.eos_token_id]
+            )
+            with torch.inference_mode():
+                self.model.generate(**inputs, streamer=streamer, **gen_kwargs)
+
+        # Start generation thread
+        generation_thread = threading.Thread(target=generate)
+        generation_thread.start()
+        
+        print("Generating content:")
+        buf = []
+        last_flush = time.time()
+        try:
+            for new_text in streamer:
+                generated_text.append(new_text)
+                buf.append(new_text)
+                
+                if len("".join(buf)) >= 1024 or (time.time() - last_flush) > 0.2:
+                    print("".join(buf), end="", flush=False)
+                    buf.clear()
+                    last_flush = time.time()
+        except Exception as e:
+            print(f"\nStreaming error: {e}")
+        
+        if buf:
+            print("".join(buf), end="")
+        # Wait for generation to complete with timeout
+        generation_thread.join(timeout=5.0)  # 5 second timeout
+        if generation_thread.is_alive():
+            print("\nWarning: Generation thread still running, continuing...")
+         
+        print()  # New line after generation completes
+        
+        # Convert collected tokens to tensor for final decode
+        response = "".join(generated_text)
+
+        
+        # Clear torch cache to prevent memory overflow
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        elif hasattr(torch, 'mps') and torch.backends.mps.is_available():
+            torch.mps.empty_cache()
+            
         return response
 
     def _inference_with_vllm(self, image, prompt):
@@ -273,18 +397,27 @@ class DotsOCRParser:
         def _execute_task(task_args):
             return self._parse_single_image(**task_args)
 
-        if self.use_hf:
-            num_thread =  1
-        else:
-            num_thread = min(total_pages, self.num_thread)
-        print(f"Parsing PDF with {total_pages} pages using {num_thread} threads...")
+        print(f"Parsing PDF with {total_pages} pages...")
 
         results = []
-        with ThreadPool(num_thread) as pool:
-            with tqdm(total=total_pages, desc="Processing PDF pages") as pbar:
-                for result in pool.imap_unordered(_execute_task, tasks):
+        if self.use_hf:
+            # Sequential processing for use_hf case
+            with tqdm(total=total_pages, desc="Processing PDF pages (sequential)") as pbar:
+                for task in tasks:
+                    result = _execute_task(task)
                     results.append(result)
                     pbar.update(1)
+        else:
+            # Parallel processing for vLLM case
+            num_thread = min(total_pages, self.num_thread)
+            print(f"Using {num_thread} threads for parallel processing...")
+            with ThreadPoolExecutor(max_workers=num_thread) as executor:
+                with tqdm(total=total_pages, desc="Processing PDF pages (parallel)") as pbar:
+                    future_to_task = {executor.submit(_execute_task, task): task for task in tasks}
+                    for future in concurrent.futures.as_completed(future_to_task):
+                        result = future.result()
+                        results.append(result)
+                        pbar.update(1)
 
         results.sort(key=lambda x: x["page_no"])
         for i in range(len(results)):
@@ -395,6 +528,10 @@ def main():
         "--use_hf", type=bool, default=False,
         help=""
     )
+    parser.add_argument(
+        "--use_mps", type=bool, default=False,
+        help=""
+    )
     args = parser.parse_args()
 
     dots_ocr_parser = DotsOCRParser(
@@ -410,6 +547,7 @@ def main():
         min_pixels=args.min_pixels,
         max_pixels=args.max_pixels,
         use_hf=args.use_hf,
+        use_mps=args.use_mps,
     )
 
     fitz_preprocess = not args.no_fitz_preprocess
