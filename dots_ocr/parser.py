@@ -156,7 +156,7 @@ class DotsOCRParser:
             min_pixels = min_pixels or MIN_PIXELS  # preprocess image to the final input
             max_pixels = max_pixels or MAX_PIXELS
         if min_pixels is not None: assert min_pixels >= MIN_PIXELS, f"min_pixels should >= {MIN_PIXELS}"
-        if max_pixels is not None: assert max_pixels <= MAX_PIXELS, f"max_pixels should <+ {MAX_PIXELS}"
+        if max_pixels is not None: assert max_pixels <= MAX_PIXELS, f"max_pixels should <= {MAX_PIXELS}"
 
         if source == 'image' and fitz_preprocess:
             image = get_image_by_fitz_doc(origin_image, target_dpi=self.dpi)

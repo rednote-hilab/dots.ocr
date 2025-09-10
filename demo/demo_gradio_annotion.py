@@ -260,7 +260,7 @@ def process_image_inference_with_annotation(annotation_data, test_image_input,
     if image is None:
         return None, "Please select a test image or add an image in the annotation component", "", "", gr.update(value=None), ""
     if bbox is None:
-        return "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None)
+        return None, "Please select a bounding box by mouse", "Please select a bounding box by mouse", "", "", gr.update(value=None)
     
     try:
         # Process using DotsOCRParser, passing the bbox parameter
