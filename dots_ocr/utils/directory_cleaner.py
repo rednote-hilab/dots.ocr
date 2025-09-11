@@ -11,6 +11,7 @@ class CropImage:
         self.image = image
         self.x_offset = x_offset
 
+MAX_LEVEL=100
 class SectionHeader:
     def __init__(self, text, category:str, bbox, level=None, source_block=None):
         self.text = text
@@ -26,7 +27,7 @@ class SectionHeader:
     @classmethod
     def from_info_block(cls, info_block, level=None):
 
-        text = info_block['text']
+        text = info_block.get('text', "")
         category = info_block['category']
         bbox = info_block['bbox']
         
@@ -36,26 +37,21 @@ class SectionHeader:
         """Extract header level from markdown-style text (# ## ### etc.)"""
         if self.category == 'Title':
             return 0
-        elif self.category == 'Section-header':
-            hash_match = re.match(r'^(#{1,6})\s+', self.text)
-            if hash_match:
-                return len(hash_match.group(1))
+
+        hash_match = re.match(r'^(#{1,6})\s+', self.text)
+        bold_match = re.search(r'\*\*(.*?)\*\*', self.text)
+        tt = 8
+        if hash_match:
+            tt = len(hash_match.group(1))
+        elif bold_match:
+            tt = 7
             
-            bold_match = re.match(r'^\*\*(.*?)\*\*$', self.text.strip())
-            if bold_match:
-                return 7
-            return 8
+        if self.category == 'Section-header':
+            return tt
         elif self.category == 'List-item':
-            hash_match = re.match(r'^(#{1,6})\s+', self.text)
-            if hash_match:
-                return 10 + len(hash_match.group(1))
-            
-            bold_match = re.match(r'^\*\*(.*?)\*\*$', self.text.strip())
-            if bold_match:
-                return 17
-            return 18
+            return 10 + tt
         else:
-            return 100
+            return 20 + tt
     
     def _clean_text(self):
         """Remove markdown symbols from text"""
@@ -159,7 +155,7 @@ class DirectoryStructure:
 
 class Reranker():
 
-    def __init__(self, upper_level=1, now_level=100000, sum_height=0, max_width=0):
+    def __init__(self, upper_level=1, now_level=MAX_LEVEL, sum_height=0, max_width=0):
         self.upper_level = upper_level
         self.now_level = now_level # current highest level in this batch
         self.sum_height = sum_height
@@ -175,7 +171,7 @@ class Reranker():
         if upper_level is None:
             upper_level = self.now_level + 1
         self.upper_level = upper_level
-        self.now_level = 100000
+        self.now_level = MAX_LEVEL
         self.sum_height = 0
         self.max_width = 0
         self.highest_list = []
@@ -185,7 +181,7 @@ class Reranker():
 
         print("---------------------------------------------------")
 
-        highest_level = 100000
+        highest_level = MAX_LEVEL
         highest_headers_idx = []
         h_idx = 0
         highest_list_is_empty = True if len(self.highest_list) == 0 else False
@@ -200,7 +196,7 @@ class Reranker():
             now_header = SectionHeader.from_info_block(info_block)
 
             match_header_idx = []
-            while h_idx < len(y_offset_list) and y_offset_list[h_idx] < info_block["bbox"][3] + 7:
+            while h_idx < len(y_offset_list) and max(0, y_offset_list[h_idx] - info_block["bbox"][3]) / (y_offset_list[h_idx] - (0 if h_idx==0 else y_offset_list[h_idx-1])) < 0.33:
                 print(y_offset_list[h_idx], info_block["bbox"][3])
                 match_header_idx.append(h_idx)
                 h_idx += 1
@@ -211,6 +207,8 @@ class Reranker():
                 highest_headers_idx = []
             if now_header.level == highest_level:
                 highest_headers_idx.extend(match_header_idx)
+                
+            # print(highest_headers_idx)
         
         if not highest_list_is_empty and 0 not in highest_headers_idx:
             self.highest_list = []
@@ -254,7 +252,7 @@ class Reranker():
 
 
     def assign_new_level(self):
-        print(len(self.highest_list),len(self.check_list))
+        print(len(self.highest_list),len(self.check_list), self.now_level)
         for header in self.highest_list:
             header.new_level = self.now_level
         for header in self.check_list:
@@ -285,15 +283,17 @@ class Reranker():
 
         try:
             if save_dir:
-                result11 = await self.parser._parse_single_image(
+                result_debug = await self.parser._parse_single_image(
                     merged_image,
                     prompt_mode="prompt_layout_all_en",
                     save_dir=save_dir,
                     save_name=save_name
                 )
-            result = await self.parser._parse_single_image_do_not_save(
+            result = await self.parser._parse_single_image(
                 merged_image,
-                prompt_mode="prompt_layout_all_en"
+                prompt_mode="prompt_layout_all_en",
+                save_dir=None,
+                save_name=None,
             )
             
             print(f"OCR parsing completed for merged crops")
@@ -318,7 +318,7 @@ class DirectoryCleaner:
         for i, page in enumerate(cells_list):
             dir_structure = DirectoryStructure()
             dir_structure.load_from_json(page["full_layout_info"])
-            dir_structure.extract_all_header_crops(images_origin[i])
+            dir_structure.extract_all_header_crops(image=images_origin[i])
             directorys.append(dir_structure)
         
             sorted_indices = sorted(range(len(dir_structure.headers)), key=lambda i: dir_structure.headers[i].level)

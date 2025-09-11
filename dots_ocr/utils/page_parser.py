@@ -70,11 +70,13 @@ class PageParser:
         """Synchronous, CPU/IO-bound part of post-processing and saving."""
         os.makedirs(save_dir, exist_ok=True)
         result = {}
-        cells, _ = post_process_output(response, prompt_mode, origin_image, image, scale_factor = scale_factor)
+        cells, _ = post_process_output(response, prompt_mode, origin_image, image)
+        for cell in cells:
+            cell["bbox"] = [int(float(num) / scale_factor) for num in cell["bbox"]]
         width, height = origin_image.size
         cells_with_size = {
-            "width": int(width / scale_factor),
-            "height": int(height / scale_factor),
+            "width": int(float(width) / scale_factor),
+            "height": int(float(height) / scale_factor),
             "full_layout_info": cells
         }
 
@@ -104,32 +106,37 @@ class PageParser:
 
         return result
 
-    def _process_results(self, response, prompt_mode, origin_image, image, page_idx = None, scale_factor=1.0):
+    def _process_results(self, response, prompt_mode, origin_image, image, page_idx = None):
         """Synchronous, CPU/IO-bound part of post-processing and saving."""
         result = {}
-        cells, _ = post_process_output(response, prompt_mode, origin_image, image, scale_factor = scale_factor)
+        cells, _ = post_process_output(response, prompt_mode, origin_image, image)
         width, height = origin_image.size
         cells_with_size = {
-            "width": int(width / scale_factor),
-            "height": int(height / scale_factor),
+            "width": width,
+            "height": height,
             "full_layout_info": cells
         }
         if page_idx is not None:
             cells_with_size['page_no'] = page_idx
         return cells_with_size
 
-    async def _save_results(self, cell, save_dir, save_name, image_origin):
+    async def _save_results(self, cells_with_size, save_dir, save_name, image_origin, scale_factor = 1.0):
+
+        for cell in cells_with_size["full_layout_info"]:
+            cell["bbox"] = [int(float(num) / scale_factor) for num in cell["bbox"]]
+        cells_with_size["width"] = int(float(cells_with_size["width"]) / scale_factor)
+        cells_with_size["height"] = int(float(cells_with_size["height"]) / scale_factor)
 
         result = {}
-        if cell['page_no'] is not None:
-            result['page_no'] = cell['page_no']
+        if cells_with_size['page_no'] is not None:
+            result['page_no'] = cells_with_size['page_no']
         json_path = os.path.join(save_dir, f"{save_name}.json")
         with open(json_path, 'w', encoding="utf-8") as f:
-            json.dump(cell, f, ensure_ascii=False, indent=4)
+            json.dump(cells_with_size, f, ensure_ascii=False, indent=4)
         result['layout_info_path'] = json_path
 
-        md_content = layoutjson2md(image_origin, cell["full_layout_info"], text_key='text')
-        md_content_nohf = layoutjson2md(image_origin, cell["full_layout_info"], text_key='text', no_page_hf=True)
+        md_content = layoutjson2md(image_origin, cells_with_size["full_layout_info"], text_key='text')
+        md_content_nohf = layoutjson2md(image_origin, cells_with_size["full_layout_info"], text_key='text', no_page_hf=True)
         
         md_path = os.path.join(save_dir, f"{save_name}.md")
         with open(md_path, "w", encoding="utf-8") as f:
@@ -144,25 +151,25 @@ class PageParser:
         return result
 
 
-    async def _parse_single_image_do_not_save(self, origin_image, prompt_mode, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
-        """Asynchronous pipeline for a single image."""
-        async with self.semaphore:
-            loop = asyncio.get_running_loop()
+    # async def _parse_single_image_do_not_save(self, origin_image, prompt_mode, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
+    #     """Asynchronous pipeline for a single image."""
+    #     async with self.semaphore:
+    #         loop = asyncio.get_running_loop()
             
-            # 1. Run CPU-bound image prep in executor
-            image, prompt, _ = await loop.run_in_executor(
-                self.cpu_executor, self._prepare_image_and_prompt, origin_image, prompt_mode, source, fitz_preprocess, bbox
-            )
+    #         # 1. Run CPU-bound image prep in executor
+    #         image, prompt, _ = await loop.run_in_executor(
+    #             self.cpu_executor, self._prepare_image_and_prompt, origin_image, prompt_mode, source, fitz_preprocess, bbox
+    #         )
             
-            # 2. Make non-blocking network call for inference
-            response = await self._inference_with_vllm(image, prompt)
+    #         # 2. Make non-blocking network call for inference
+    #         response = await self._inference_with_vllm(image, prompt)
             
-            # 3. Run CPU/IO-bound post-processing and saving in executor
-            cells = await loop.run_in_executor(
-                self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx, scale_factor
-            )
+    #         # 3. Run CPU/IO-bound post-processing and saving in executor
+    #         cells = await loop.run_in_executor(
+    #             self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx, scale_factor
+    #         )
             
-            return cells
+    #         return cells
 
     async def _parse_single_image(self, origin_image, prompt_mode, save_dir, save_name, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
         """Asynchronous pipeline for a single image."""
@@ -175,12 +182,18 @@ class PageParser:
             )
             # 2. Make non-blocking network call for inference
             response = await self._inference_with_vllm(image, prompt)
-            
+
             # 3. Run CPU/IO-bound post-processing and saving in executor
-            save_name_page = f"{save_name}_page_{page_idx}" if source == 'pdf' else save_name
-            result = await loop.run_in_executor(
-                self.cpu_executor, self._process_and_save_results, response, prompt_mode, save_dir, save_name_page, origin_image, image, scale_factor
-            )
-            
-            result['page_no'] = page_idx
-            return result
+            if save_dir is None: # do not save, just return cells for further processing
+                cells = await loop.run_in_executor(
+                    self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx
+                )
+                return cells
+            else:          
+                save_name_page = f"{save_name}_page_{page_idx}" if source == 'pdf' else save_name
+                result = await loop.run_in_executor(
+                    self.cpu_executor, self._process_and_save_results, response, prompt_mode, save_dir, save_name_page, origin_image, image, scale_factor
+                )
+                
+                result['page_no'] = page_idx
+                return result
