@@ -9,3 +9,4 @@ huggingface_hub
 modelscope
 flash-attn==2.8.0.post2
 accelerate
+hashlib
