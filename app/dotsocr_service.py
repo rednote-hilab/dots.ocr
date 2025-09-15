@@ -310,7 +310,12 @@ async def stream_and_upload_generator(
                                 file_name = Path(local_path).name
                                 s3_key = f"{output_key}/{file_name}"
                                 task = asyncio.create_task(
-                                    storage_manager.download_file(output_bucket, s3_key, local_path, is_s3)
+                                    storage_manager.download_file(
+                                        bucket=output_bucket, 
+                                        key=s3_key, 
+                                        local_path=local_path, 
+                                        is_s3=is_s3
+                                    )
                                 )
                                 page_download_tasks.append(task)
                         downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
@@ -329,24 +334,37 @@ async def stream_and_upload_generator(
                 ## combine output
                 all_paths_to_upload.sort(key=lambda item: item['page_no'])
                 output_files = {}
-                output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
-                output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
-                output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
-                all_json_data = []
-                for p in all_paths_to_upload:
-                    page_no = p.pop('page_no')
-                    for file_type, local_path in p.items():
-                        if file_type == 'json':
-                            with open(local_path, 'r', encoding='utf-8') as input_file:
-                                data = json.load(input_file)
-                            data = {"page_no": page_no, **data}
-                            all_json_data.append(data)
-                        else:
-                            with open(local_path, 'r', encoding='utf-8') as input_file:
-                                file_content = input_file.read()
-                            output_files[file_type].write(file_content)
-                            output_files[file_type].write("\n\n")
-                json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
+                try:
+                    output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
+                    output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
+                    output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                    all_json_data = []
+                    for p in all_paths_to_upload:
+                        page_no = p.pop('page_no')
+                        for file_type, local_path in p.items():
+                            if file_type == 'json':
+                                try:
+                                    with open(local_path, 'r', encoding='utf-8') as input_file:
+                                        data = json.load(input_file)
+                                    data = {"page_no": page_no, **data}
+                                    all_json_data.append(data)
+                                except Exception as e:
+                                    print(f"WARNING: Failed to read layout info file {local_path}: {str(e)}")
+                                    all_json_data.append({"page_no": page_no})
+                            else:
+                                try:
+                                    with open(local_path, 'r', encoding='utf-8') as input_file:
+                                        file_content = input_file.read()
+                                    output_files[file_type].write(file_content)
+                                    output_files[file_type].write("\n\n")
+                                except Exception as e:
+                                    print(f"WARNING: Failed to read {file_type} file {local_path}: {str(e)}")
+                    json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
+                finally:
+                    # Ensure all file handles are properly closed
+                    for file_handle in output_files.values():
+                        if hasattr(file_handle, 'close'):
+                            file_handle.close()
                 
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
@@ -648,7 +666,12 @@ async def stream_page_by_page_upload_generator(
                                 file_name = Path(local_path).name
                                 s3_key = f"{output_key}/{file_name}"
                                 task = asyncio.create_task(
-                                    storage_manager.download_file(output_bucket, s3_key, local_path, is_s3)
+                                    storage_manager.download_file(
+                                        bucket=output_bucket, 
+                                        key=s3_key, 
+                                        local_path=local_path, 
+                                        is_s3=is_s3
+                                    )
                                 )
                                 page_download_tasks.append(task)
                         downloaded_paths_for_page = await asyncio.gather(*page_download_tasks)
@@ -667,24 +690,37 @@ async def stream_page_by_page_upload_generator(
                 ## combine output
                 all_paths_to_upload.sort(key=lambda item: item['page_no'])
                 output_files = {}
-                output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
-                output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
-                output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
-                all_json_data = []
-                for p in all_paths_to_upload:
-                    page_no = p.pop('page_no')
-                    for file_type, local_path in p.items():
-                        if file_type == 'json':
-                            with open(local_path, 'r', encoding='utf-8') as input_file:
-                                data = json.load(input_file)
-                            data = {"page_no": page_no, **data}
-                            all_json_data.append(data)
-                        else:
-                            with open(local_path, 'r', encoding='utf-8') as input_file:
-                                file_content = input_file.read()
-                            output_files[file_type].write(file_content)
-                            output_files[file_type].write("\n\n")
-                json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
+                try:
+                    output_files['md'] = open(output_md_path, 'w', encoding='utf-8')
+                    output_files['json'] = open(output_json_path, 'w', encoding='utf-8')
+                    output_files['md_nohf'] = open(output_md_nohf_path, 'w', encoding='utf-8')
+                    all_json_data = []
+                    for p in all_paths_to_upload:
+                        page_no = p.pop('page_no')
+                        for file_type, local_path in p.items():
+                            if file_type == 'json':
+                                try:
+                                    with open(local_path, 'r', encoding='utf-8') as input_file:
+                                        data = json.load(input_file)
+                                    data = {"page_no": page_no, **data}
+                                    all_json_data.append(data)
+                                except Exception as e:
+                                    print(f"WARNING: Failed to read layout info file {local_path}: {str(e)}")
+                                    all_json_data.append({"page_no": page_no})
+                            else:
+                                try:
+                                    with open(local_path, 'r', encoding='utf-8') as input_file:
+                                        file_content = input_file.read()
+                                    output_files[file_type].write(file_content)
+                                    output_files[file_type].write("\n\n")
+                                except Exception as e:
+                                    print(f"WARNING: Failed to read {file_type} file {local_path}: {str(e)}")
+                    json.dump(all_json_data, output_files['json'], indent=4, ensure_ascii=False)
+                finally:
+                    # Ensure all file handles are properly closed
+                    for file_handle in output_files.values():
+                        if hasattr(file_handle, 'close'):
+                            file_handle.close()
 
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}.md", str(output_md_path), is_s3)
                 await storage_manager.upload_file(output_bucket, f"{output_key}/{output_file_name}_nohf.md", str(output_md_nohf_path), is_s3)
