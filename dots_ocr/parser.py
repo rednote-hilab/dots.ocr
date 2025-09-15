@@ -177,7 +177,7 @@ class DotsOCRParser:
                     pbar.update(1)
                     return result
 
-            for page_idx, image in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
+            for page_idx, image, scale_factor in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
                 task = asyncio.create_task(worker(page_idx, image))
                 tasks.append(task)
 
