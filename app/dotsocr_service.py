@@ -172,6 +172,14 @@ async def stream_and_upload_generator(
                 except Exception as e:
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
                 
+                # compute MD5 hash of the input file
+                try:
+                    file_md5 = compute_md5(str(input_file_path))
+                    logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
+                except Exception as e:
+                    logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")
+                    raise RuntimeError(f"Failed to compute MD5 hash: {str(e)}") from e
+                
                 # prepare local path
                 output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
                 output_file_name = output_s3_path.rstrip("/").split("/")[-1]
@@ -180,8 +188,57 @@ async def stream_and_upload_generator(
                 output_json_path = output_md_path.with_suffix(".json")
                 output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
                 output_md_path = output_md_path.with_suffix(".md")
+                output_md5_path = output_md_path.with_suffix(".md5")
                 output_md_path.parent.mkdir(parents=True, exist_ok=True)
                 output_file_path.mkdir(parents=True, exist_ok=True)
+            
+                # Check if 4 required files already exist in S3
+                md5_exists, all_files_exist = await storage_manager.check_existing_results_sync(
+                    bucket=output_bucket, prefix=f"{output_key}/{output_file_name}", is_s3=is_s3
+                )
+            
+                # If so, download md5 file and compare hashes
+                if md5_exists:
+                    try:
+                        await storage_manager.download_file(
+                            bucket=output_bucket,
+                            key=f"{output_key}/{output_file_name}.md5",
+                            local_path=str(output_md5_path),
+                            is_s3=is_s3
+                        )
+                        with open(output_md5_path, 'r') as f:
+                            existing_md5 = f.read().strip()
+                        if existing_md5 == file_md5:
+                            if all_files_exist:
+                                logging.info(f"Output files already exist in S3 and MD5 matches for {input_s3_path}. Skipping processing.")
+                                return {
+                                    "success": True,
+                                    "total_pages": 0,
+                                    "output_s3_path": output_s3_path,
+                                    "message": "Output files already exist and MD5 matches. Skipped processing."
+                                }
+                            logging.info(f"MD5 matches for {input_s3_path}, but some output files are missing. Reprocessing the file.")
+                        else:
+                            # clean the whole output directory in S3
+                            print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
+                            logging.info(f"MD5 mismatch for {input_s3_path}. Reprocessing the file.")
+                            await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
+                    except Exception as e:
+                        logging.warning(f"Failed to verify existing MD5 hash for {input_s3_path}: {str(e)}. Reprocessing the file.")
+
+                # Mismatch or no existing MD5 hash found, save new MD5 hash to a file
+                with open(output_md5_path, 'w') as f:
+                    f.write(file_md5)
+                logging.info(f"Saved MD5 hash to {output_md5_path}")
+                
+                # Upload MD5 hash file to S3/OSS
+                try:
+                    await storage_manager.upload_file(
+                        output_bucket, f"{output_key}/{output_file_name}.md5", str(output_md5_path), is_s3
+                    )
+                except Exception as e:
+                    logging.warning(f"Failed to upload MD5 hash file to s3/oss: {str(e)}")
+
             
                 # print(output_bucket, output_key)
                 # print(output_file_name)
@@ -460,6 +517,14 @@ async def stream_page_by_page_upload_generator(
                 except Exception as e:
                     raise RuntimeError(f"Failed to download file from s3/oss: {str(e)}") from e
                 
+                # compute MD5 hash of the input file
+                try:
+                    file_md5 = compute_md5(str(input_file_path))
+                    logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
+                except Exception as e:
+                    logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")
+                    raise RuntimeError(f"Failed to compute MD5 hash: {str(e)}") from e
+                
                 # prepare local path
                 output_bucket, output_key = parse_s3_path(output_s3_path, is_s3)
                 output_file_name = output_s3_path.rstrip("/").split("/")[-1]
@@ -468,8 +533,56 @@ async def stream_page_by_page_upload_generator(
                 output_json_path = output_md_path.with_suffix(".json")
                 output_md_nohf_path = output_md_path.with_name(output_md_path.stem + "_nohf").with_suffix(".md")
                 output_md_path = output_md_path.with_suffix(".md")
+                output_md5_path = output_md_path.with_suffix(".md5")
                 output_md_path.parent.mkdir(parents=True, exist_ok=True)
                 output_file_path.mkdir(parents=True, exist_ok=True)
+            
+                # Check if 4 required files already exist in S3
+                md5_exists, all_files_exist = await storage_manager.check_existing_results_sync(
+                    bucket=output_bucket, prefix=f"{output_key}/{output_file_name}", is_s3=is_s3
+                )
+                
+                # If so, download md5 file and compare hashes
+                if md5_exists:
+                    try:
+                        await storage_manager.download_file(
+                            bucket=output_bucket,
+                            key=f"{output_key}/{output_file_name}.md5",
+                            local_path=str(output_md5_path),
+                            is_s3=is_s3
+                        )
+                        with open(output_md5_path, 'r') as f:
+                            existing_md5 = f.read().strip()
+                        if existing_md5 == file_md5:
+                            if all_files_exist:
+                                logging.info(f"Output files already exist in S3 and MD5 matches for {input_s3_path}. Skipping processing.")
+                                return {
+                                    "success": True,
+                                    "total_pages": 0,
+                                    "output_s3_path": output_s3_path,
+                                    "message": "Output files already exist and MD5 matches. Skipped processing."
+                                }
+                            logging.info(f"MD5 matches for {input_s3_path}, but some output files are missing. Reprocessing the file.")
+                        else:
+                            # clean the whole output directory in S3
+                            print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
+                            logging.info(f"MD5 mismatch for {input_s3_path}. Reprocessing the file.")
+                            await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
+                    except Exception as e:
+                        logging.warning(f"Failed to verify existing MD5 hash for {input_s3_path}: {str(e)}. Reprocessing the file.")
+
+                # Mismatch or no existing MD5 hash found, save new MD5 hash to a file
+                with open(output_md5_path, 'w') as f:
+                    f.write(file_md5)
+                logging.info(f"Saved MD5 hash to {output_md5_path}")
+                
+                # Upload MD5 hash file to S3/OSS
+                try:
+                    await storage_manager.upload_file(
+                        output_bucket, f"{output_key}/{output_file_name}.md5", str(output_md5_path), is_s3
+                    )
+                except Exception as e:
+                    logging.warning(f"Failed to upload MD5 hash file to s3/oss: {str(e)}")
             
                 # print(output_bucket, output_key)
                 # print(output_file_name)
@@ -654,7 +767,7 @@ async def parse(
                 
                 # compute MD5 hash of the input file
                 try:
-                    file_md5 = compute_md5(str(input_file_path)) + "1"
+                    file_md5 = compute_md5(str(input_file_path))
                     logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
                 except Exception as e:
                     logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")
