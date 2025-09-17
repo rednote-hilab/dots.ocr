@@ -550,8 +550,8 @@ def create_gradio_interface():
                 gr.Markdown("### ⚙️ Prompt & Actions")
                 prompt_mode = gr.Dropdown(
                     label="Select Prompt",
-                    choices=["prompt_layout_all_en", "prompt_layout_only_en", "prompt_ocr"],
-                    value="prompt_layout_all_en",
+                    choices=list(dict_promptmode_to_prompt.keys()), 
+                    value=list(dict_promptmode_to_prompt.keys())[0],
                 )
                 
                 # Display current prompt content
