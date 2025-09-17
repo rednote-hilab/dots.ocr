@@ -235,7 +235,7 @@ class Reranker():
 
     def insert(self, header: SectionHeader):
         self.sum_height += header.bbox[3] - header.bbox[1]
-        self.max_width = max(self.max_width, header.bbox[2])
+        self.max_width = max(self.max_width, header.bbox[2] - header.bbox[0])
         if header.level < self.now_level:
             self.now_level = max(self.upper_level, header.level)
 
@@ -243,7 +243,7 @@ class Reranker():
 
     async def try_to_insert(self, header: SectionHeader):
         h = self.sum_height + header.bbox[3] - header.bbox[1]
-        w = max(self.max_width, header.bbox[2])
+        w = max(self.max_width, header.bbox[2] - header.bbox[0])
         if  h * w > MAX_PIXELS or h > MAX_LENGTH:
             await self.start_rerank()
             self.sum_height = 0
@@ -264,7 +264,7 @@ class Reranker():
             print("No crops provided")
             return None
         
-        total_width = max(crop.image.width + crop.x_offset for crop in crops)
+        total_width = max(crop.image.width for crop in crops)
         total_height = sum(crop.image.height for crop in crops)
         
         merged_image = Image.new("RGB", (total_width, total_height), (255, 255, 255))
@@ -272,7 +272,7 @@ class Reranker():
         y_offset_list = []
         y_offset = 0
         for crop in crops:
-            merged_image.paste(crop.image, (crop.x_offset, y_offset))
+            merged_image.paste(crop.image, (0, y_offset))
             y_offset += crop.image.height
             y_offset_list.append(y_offset)
         

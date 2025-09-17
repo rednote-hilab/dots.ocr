@@ -48,6 +48,19 @@ class PageParser:
             max_completion_tokens=self.max_completion_tokens,
         )
         return response
+    
+    async def _inference_with_vllm_internVL(self, image, prompt):
+        response = await inference_with_vllm(
+            image,
+            prompt, 
+            model_name='/app/models/InternVL3_5-2B',
+            ip='localhost',
+            port=8010,
+            temperature=0.1,
+            top_p=1.0,
+            max_completion_tokens=2048,
+        )
+        return response
             
     def _prepare_image_and_prompt(self, origin_image, prompt_mode, source, fitz_preprocess, bbox):
         """Synchronous, CPU-bound part of image preparation."""
@@ -149,28 +162,7 @@ class PageParser:
         result['md_content_nohf_path'] = md_nohf_path
 
         return result
-
-
-    # async def _parse_single_image_do_not_save(self, origin_image, prompt_mode, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
-    #     """Asynchronous pipeline for a single image."""
-    #     async with self.semaphore:
-    #         loop = asyncio.get_running_loop()
-            
-    #         # 1. Run CPU-bound image prep in executor
-    #         image, prompt, _ = await loop.run_in_executor(
-    #             self.cpu_executor, self._prepare_image_and_prompt, origin_image, prompt_mode, source, fitz_preprocess, bbox
-    #         )
-            
-    #         # 2. Make non-blocking network call for inference
-    #         response = await self._inference_with_vllm(image, prompt)
-            
-    #         # 3. Run CPU/IO-bound post-processing and saving in executor
-    #         cells = await loop.run_in_executor(
-    #             self.cpu_executor, self._process_results, response, prompt_mode, origin_image, image, page_idx, scale_factor
-    #         )
-            
-    #         return cells
-
+    
     async def _parse_single_image(self, origin_image, prompt_mode, save_dir, save_name, source="image", page_idx=0, bbox=None, fitz_preprocess=False, scale_factor=1.0):
         """Asynchronous pipeline for a single image."""
         async with self.semaphore:
@@ -197,3 +189,29 @@ class PageParser:
                 
                 result['page_no'] = page_idx
                 return result
+    
+    async def _describe_picture_in_single_page(self, origin_image, cells):
+
+        for info_block in cells['full_layout_info']:
+            print(info_block)
+
+        picture_blocks = [
+            info_block for info_block in cells['full_layout_info'] 
+            if info_block['category'] == 'Picture'
+        ]
+
+        if not picture_blocks:
+            return
+        
+        # Create tasks for concurrent processing
+        async def process_picture_block(info_block):
+            async with self.semaphore:  # Use the existing semaphore from PageParser
+                x0, y0, x1, y1 = info_block['bbox']
+                cropped_img = origin_image.crop((x0, y0, x1, y1))
+                prompt = "Describe the picture in detail."
+                response = await self._inference_with_vllm_internVL(cropped_img, prompt)
+                info_block['text'] = response.strip()
+        
+        # Process all pictures concurrently
+        tasks = [process_picture_block(block) for block in picture_blocks]
+        await asyncio.gather(*tasks)

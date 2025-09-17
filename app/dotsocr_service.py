@@ -23,7 +23,7 @@ from app.utils.storage import StorageManager
 from app.utils.redis import RedisConnector
 from app.utils.hash import compute_md5
 
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
 NUM_WORKERS = 4 

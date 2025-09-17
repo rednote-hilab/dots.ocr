@@ -12,7 +12,7 @@ def test_vllm_image_description():
     """Test function to send image description request to VLLM server"""
     
     # Server URL
-    url = "http://localhost:6018/v1/chat/completions"
+    url = "http://localhost:8010/v1/chat/completions"
     
     # Encode the image
     try:
