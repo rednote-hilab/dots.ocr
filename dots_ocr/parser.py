@@ -117,7 +117,7 @@ class DotsOCRParser:
         semaphore = asyncio.Semaphore(self.parser.concurrency_limit)
         tasks = []
         with tqdm(total=total_pages, desc="Processing PDF pages (stream)") as pbar:
-            async def worker(page_idx, image):
+            async def worker(page_idx, image, scale_factor):
                 async with semaphore:
                     result = await self.parser._parse_single_image(
                         origin_image=image,
@@ -126,12 +126,13 @@ class DotsOCRParser:
                         save_name=filename,
                         source="pdf",
                         page_idx=page_idx,
+                        scale_factor=scale_factor
                     )
                     pbar.update(1)
                     return result
 
             for page_idx, image, scale_factor in iter_images_from_pdf(input_path, dpi=200, existing_pages=existing_pages):
-                task = asyncio.create_task(worker(page_idx, image))
+                task = asyncio.create_task(worker(page_idx, image, scale_factor))
                 tasks.append(task)
 
             for future in asyncio.as_completed(tasks):
