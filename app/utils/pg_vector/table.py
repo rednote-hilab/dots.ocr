@@ -1,6 +1,7 @@
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import Column, DateTime, String
 from typing import Optional, Literal
+from datetime import datetime
 
 Base = declarative_base()
 
@@ -21,8 +22,8 @@ class OCRTable(Base):
     markdownUrl: Optional[str] = Column(String, nullable=True)
     jsonUrl: Optional[str] = Column(String, nullable=True)
     status: Optional[status_type] = Column(String, nullable=True)
-    createdAt: Optional[DateTime] = Column(DateTime, nullable=True)
-    updatedAt: Optional[DateTime] = Column(DateTime, nullable=True)
+    createdAt: Optional[datetime] = Column(DateTime, nullable=True)
+    updatedAt: Optional[datetime] = Column(DateTime, nullable=True)
     createdBy: Optional[str] = Column(String, nullable=True)
     updatedBy: Optional[str] = Column(String, nullable=True)
 

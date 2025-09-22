@@ -21,8 +21,9 @@ import httpx
 import re
 from app.utils.storage import StorageManager
 from app.utils.redis import RedisConnector
-from app.utils.hash import compute_md5
+from app.utils.hash import compute_md5_file, compute_md5_string
 from app.utils.pg_vector import PGVector, OCRTable
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -92,6 +93,10 @@ class JobResponseModel(BaseModel):
     job_id: str
     created_by: str = "system"
     updated_by: str = "system"
+    created_at: datetime = None
+    updated_at: datetime = None
+    knowledgebase_id: str
+    workspace_id: str
     status: Literal["pending", "retrying", "processing", "completed", "failed", "canceled"] # canceled havn't implemented
     message: str
     is_s3: bool = True
@@ -114,40 +119,36 @@ class JobResponseModel(BaseModel):
             jsonUrl=self.json_url,
             status=self.status,
             createdBy=self.created_by,
-            updatedBy=self.updated_by
+            updatedBy=self.updated_by,
+            createdAt=self.created_at,
+            updatedAt=self.updated_at
         )
 
-    def transform_to_map(self):
-        mapping = {
-            "url": self.output_s3_path,
-            "markdownUrl": self.md_url,
-            "jsonUrl": self.json_url,
-            "status": self.status
-        }
-        return {k: (v if v is not None else "") for k, v in mapping.items()}
-        
+# TODO: remove after switch to pgvector completely
 async def update_redis(job: JobResponseModel):
-    redis_connector.hset(f"OCRJobId:{job.job_id}", mapping=job.transform_to_map())
-
-async def upsert_pgvector(job: JobResponseModel):
-    async with PGVECTOR_LOCK:
-        record = await pg_vector_manager.get_record_by_id(job.job_id)
-        if record:
-            updates = job.transform_to_map()
-            await pg_vector_manager.update_record(job.job_id, updates)
-        else:
-            new_record = job.get_table_record()
-            await pg_vector_manager.upsert_record(new_record)
+    redis_connector.hset(f"OCRJobId:{job.job_id}", mapping=dict(job.get_table_record()))
 
 async def update_pgvector(job: JobResponseModel):
+    job.updated_at = datetime.utcnow()
     async with PGVECTOR_LOCK:
+        await pg_vector_manager.ensure_table_exists()
+        
         record = await pg_vector_manager.get_record_by_id(job.job_id)
+
         if record:
-            updates = job.transform_to_map()
+            updates = job.get_table_record()
             await pg_vector_manager.update_record(job.job_id, updates)
         else:
             new_record = job.get_table_record()
             await pg_vector_manager.upsert_record(new_record)
+
+        # await pg_vector_manager.flush()
+
+async def get_record_pgvector(job_id: str) -> OCRTable:
+    async with PGVECTOR_LOCK:
+        await pg_vector_manager.ensure_table_exists()
+        record = await pg_vector_manager.get_record_by_id(job_id)
+        return record
 
 JobResponseDict: Dict[str, JobResponseModel] = {}
 JobLocks: Dict[str, asyncio.Lock] = {}
@@ -205,7 +206,7 @@ async def stream_and_upload_generator(
                 
                 # compute MD5 hash of the input file
                 try:
-                    file_md5 = compute_md5(str(input_file_path))
+                    file_md5 = JobResponse.job_id + ":" + compute_md5_file(str(input_file_path))
                     logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
                 except Exception as e:
                     logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")
@@ -242,6 +243,10 @@ async def stream_and_upload_generator(
                         if existing_md5 == file_md5:
                             if all_files_exist:
                                 logging.info(f"Output files already exist in S3 and MD5 matches for {input_s3_path}. Skipping processing.")
+                                JobResponse.json_url = f"{output_s3_path}/{output_file_name}.json"
+                                JobResponse.md_url = f"{output_s3_path}/{output_file_name}.md"
+                                JobResponse.md_nohf_url = f"{output_s3_path}/{output_file_name}_nohf.md"
+                                JobResponse.page_prefix = f"{output_s3_path}/{output_file_name}_page_"
                                 skip_response = {
                                     "success": True,
                                     "total_pages": 0,
@@ -253,16 +258,17 @@ async def stream_and_upload_generator(
                             logging.info(f"MD5 matches for {input_s3_path}, but some output files are missing. Reprocessing the file.")
                         else:
                             # clean the whole output directory in S3
-                            print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
+                            # print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
+                            # await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
                             logging.info(f"MD5 mismatch for {input_s3_path}. Reprocessing the file.")
-                            await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
                     except Exception as e:
                         logging.warning(f"Failed to verify existing MD5 hash for {input_s3_path}: {str(e)}. Reprocessing the file.")
                 else:
                     # clean the whole output directory in S3 for safety
-                    print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
-                    logging.info(f"No MD5 hash found for {input_s3_path}. Cleaning output directory.")
-                    await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
+                    # print(f"Cleaning output directory in S3: {output_bucket}/{output_key}/")
+                    # logging.info(f"No MD5 hash found for {input_s3_path}. Cleaning output directory.")
+                    # await storage_manager.delete_files_in_directory(output_bucket, f"{output_key}/", is_s3)
+                    logging.info(f"No MD5 hash found for {input_s3_path}. Reprocessing the file.")
 
                 # Mismatch or no existing MD5 hash found, save new MD5 hash to a file
                 with open(output_md5_path, 'w') as f:
@@ -497,8 +503,8 @@ async def parse_file(
             detail=f"Unsupported file format. Supported formats are: {', '.join(supported_formats)}"
         )
     
-    OCRJobId = knowledgebaseId + workspaceId + str(uuid.uuid4())
-    
+    # Current logic: only if input, output, knowledgebaseId, workspaceId are all the same, we consider it as the same job, and add job_id to the md5 file
+    OCRJobId = "job-" + compute_md5_string(f"{input_s3_path}_{output_s3_path}_{knowledgebaseId}_{workspaceId}")
     
     is_s3 = False
     if input_s3_path.startswith("s3://") and output_s3_path.startswith("s3://"):
@@ -508,8 +514,19 @@ async def parse_file(
     else:
         raise RuntimeError("Input and output paths must both be s3:// or oss://")
 
+    # Get the existing job status from pgvector
+    existing_record = await get_record_pgvector(OCRJobId)
+    if existing_record:
+        if existing_record.status in ["pending", "retrying", "processing"]:
+            return JSONResponse({"OCRJobId": OCRJobId, "status": existing_record.status, "message": "Job is already in progress"}, status_code=202)
+        elif existing_record.status == "completed" or existing_record.status == "failed":
+            # allow re-process but check md5 first in the worker
+            pass
+
     JobResponse = JobResponseModel(
         job_id=OCRJobId,
+        created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
         status="pending",
         knowledgebase_id=knowledgebaseId,
         workspace_id=workspaceId,
@@ -575,7 +592,7 @@ async def stream_page_by_page_upload_generator(
                 
                 # compute MD5 hash of the input file
                 try:
-                    file_md5 = compute_md5(str(input_file_path))
+                    file_md5 = compute_md5_file(str(input_file_path))
                     logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
                 except Exception as e:
                     logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")
@@ -881,7 +898,7 @@ async def parse(
                 
                 # compute MD5 hash of the input file
                 try:
-                    file_md5 = compute_md5(str(input_file_path))
+                    file_md5 = compute_md5_file(str(input_file_path))
                     logging.info(f"MD5 hash of input file {input_s3_path}: {file_md5}")
                 except Exception as e:
                     logging.error(f"Failed to compute MD5 hash for {input_s3_path}: {str(e)}")

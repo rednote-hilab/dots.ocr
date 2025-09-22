@@ -79,15 +79,15 @@ class PGVector:
         except Exception as e:
             logging.error(f"Error retrieving record by id {record_id}: {e}")
             raise
-    
-    async def update_record(self, record_id: str, updates: Dict[str, Any]) -> bool:
+
+    async def update_record(self, record_id: str, updates: OCRTable) -> bool:
         """Update specific fields of a record"""
         try:
             async with self.Session() as session:
                 stmt = (
                     update(OCRTable)
                     .where(OCRTable.id == record_id)
-                    .values(**updates)
+                    .values(**dict(updates))
                 )
                 
                 result = await session.execute(stmt)
@@ -121,6 +121,16 @@ class PGVector:
         except Exception as e:
             logging.error(f"Error deleting record {record_id}: {e}")
             await session.rollback()
+            raise
+    
+    async def flush(self):
+        """Flush the current session"""
+        try:
+            if hasattr(self, 'session') and self.session:
+                await self.session.flush()
+                logging.info("Successfully flushed the session")
+        except Exception as e:
+            logging.error(f"Error flushing session: {e}")
             raise
     
     async def close(self):
