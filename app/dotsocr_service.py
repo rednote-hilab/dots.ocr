@@ -22,6 +22,7 @@ import re
 from app.utils.storage import StorageManager
 from app.utils.redis import RedisConnector
 from app.utils.hash import compute_md5
+from app.utils.pg_vector import PGVector, OCRTable
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -61,6 +62,7 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(INPUT_DIR, exist_ok=True)
 
 GLOBAL_LOCK_MANAGER = asyncio.Lock() 
+PGVECTOR_LOCK = asyncio.Lock()
 PROCESSING_INPUT_LOCKS = {} 
 PROCESSING_OUTPUT_LOCKS = {} 
 
@@ -76,6 +78,7 @@ dots_parser = DotsOCRParser(
 
 storage_manager = StorageManager()
 redis_connector = RedisConnector()
+pg_vector_manager = PGVector()
 
 def parse_s3_path(s3_path: str, is_s3):
     if is_s3:
@@ -87,8 +90,8 @@ def parse_s3_path(s3_path: str, is_s3):
 
 class JobResponseModel(BaseModel):
     job_id: str
-    knowledgebase_id: str
-    workspace_id: str
+    created_by: str = "system"
+    updated_by: str = "system"
     status: Literal["pending", "retrying", "processing", "completed", "failed", "canceled"] # canceled havn't implemented
     message: str
     is_s3: bool = True
@@ -102,12 +105,21 @@ class JobResponseModel(BaseModel):
 
     prompt_mode: str = "prompt_layout_all_en"
     fitz_preprocess: bool = False
+    
+    def get_table_record(self) -> OCRTable:
+        return OCRTable(
+            id=self.job_id,
+            url=self.input_s3_path,
+            markdownUrl=self.md_url,
+            jsonUrl=self.json_url,
+            status=self.status,
+            createdBy=self.created_by,
+            updatedBy=self.updated_by
+        )
 
     def transform_to_map(self):
         mapping = {
             "url": self.output_s3_path,
-            "knowledgebaseId": self.knowledgebase_id,
-            "workspaceId": self.workspace_id,
             "markdownUrl": self.md_url,
             "jsonUrl": self.json_url,
             "status": self.status
@@ -117,6 +129,25 @@ class JobResponseModel(BaseModel):
 async def update_redis(job: JobResponseModel):
     redis_connector.hset(f"OCRJobId:{job.job_id}", mapping=job.transform_to_map())
 
+async def upsert_pgvector(job: JobResponseModel):
+    async with PGVECTOR_LOCK:
+        record = await pg_vector_manager.get_record_by_id(job.job_id)
+        if record:
+            updates = job.transform_to_map()
+            await pg_vector_manager.update_record(job.job_id, updates)
+        else:
+            new_record = job.get_table_record()
+            await pg_vector_manager.upsert_record(new_record)
+
+async def update_pgvector(job: JobResponseModel):
+    async with PGVECTOR_LOCK:
+        record = await pg_vector_manager.get_record_by_id(job.job_id)
+        if record:
+            updates = job.transform_to_map()
+            await pg_vector_manager.update_record(job.job_id, updates)
+        else:
+            new_record = job.get_table_record()
+            await pg_vector_manager.upsert_record(new_record)
 
 JobResponseDict: Dict[str, JobResponseModel] = {}
 JobLocks: Dict[str, asyncio.Lock] = {}
@@ -400,10 +431,10 @@ async def attempt_to_process_job(job: JobResponseModel):
     attempt_num = attempt_to_process_job.retry.statistics.get('attempt_number', 0) + 1
     if attempt_num == 1:
         job.status = "processing"
-        await update_redis(job)
+        await update_pgvector(job)
     else:
         job.status = "retrying"
-        await update_redis(job)
+        await update_pgvector(job)
     job.message = f"Processing job, attempt number: {attempt_num}"
 
     try:
@@ -432,11 +463,11 @@ async def worker(worker_id: str):
                 logging.error(f"Job {JobResponse.job_id} failed after 5 attempts. Final error: {e}", exc_info=True)
                 JobResponse.status = "failed"
                 JobResponse.message = f"Job failed after multiple retries. Final error: {str(e)}"
-                await update_redis(JobResponse)
+                await update_pgvector(JobResponse)
 
             JobResponse.status = "completed"
             JobResponse.message = "Job completed successfully"
-            await update_redis(JobResponse)
+            await update_pgvector(JobResponse)
             JobQueue.task_done()
             
         except asyncio.CancelledError:
@@ -491,7 +522,7 @@ async def parse_file(
     )
     JobResponseDict[OCRJobId] = JobResponse
     JobLocks[OCRJobId] = asyncio.Lock()
-    await update_redis(JobResponse)
+    await update_pgvector(JobResponse)
     await JobQueue.put(OCRJobId)
 
     return JSONResponse({"OCRJobId": OCRJobId}, status_code=200)
