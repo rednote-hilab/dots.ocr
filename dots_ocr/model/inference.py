@@ -12,7 +12,7 @@ def inference_with_vllm(
         temperature=0.1,
         top_p=0.9,
         max_completion_tokens=32768,
-        model_name='model',
+        model_name='rednote-hilab/dots.ocr',
         ):
     
     addr = f"http://{ip}:{port}/v1"
