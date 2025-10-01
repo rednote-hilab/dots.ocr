@@ -1024,7 +1024,7 @@ python3 tools/download_model.py --type modelscope
 
 ## 2. Deployment
 ### vLLM inference
-We highly recommend using vLLM for deployment and inference. All of our evaluations results are based on vLLM 0.9.1 via out-of-tree model registration. Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
+We highly recommend using vLLM for deployment and inference. All of our evaluations results are based on vLLM 0.9.1 via out-of-tree model registration. **Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM** and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
 
 ```shell
 # Launch vLLM model server
