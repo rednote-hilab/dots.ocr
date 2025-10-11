@@ -1024,23 +1024,15 @@ python3 tools/download_model.py --type modelscope
 
 ## 2. Deployment
 ### vLLM inference
-We highly recommend using vllm for deployment and inference. All of our evaluations results are based on vllm version 0.9.1.
-The [Docker Image](https://hub.docker.com/r/rednotehilab/dots.ocr) is based on the official vllm image. You can also follow [Dockerfile](https://github.com/rednote-hilab/dots.ocr/blob/master/docker/Dockerfile) to build the deployment environment by yourself. 
+We highly recommend using vLLM for deployment and inference. All of our evaluations results are based on vLLM 0.9.1 via out-of-tree model registration. **Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM with verified performance** and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
 
 ```shell
-# You need to register model to vllm at first
-python3 tools/download_model.py
-export hf_model_path=./weights/DotsOCR  # Path to your downloaded model weights, Please use a directory name without periods (e.g., `DotsOCR` instead of `dots.ocr`) for the model save path. This is a temporary workaround pending our integration with Transformers.
-export PYTHONPATH=$(dirname "$hf_model_path"):$PYTHONPATH
-sed -i '/^from vllm\.entrypoints\.cli\.main import main$/a\
-from DotsOCR import modeling_dots_ocr_vllm' `which vllm`  # If you downloaded model weights by yourself, please replace `DotsOCR` by your model saved directory name, and remember to use a directory name without periods (e.g., `DotsOCR` instead of `dots.ocr`) 
+# Launch vLLM model server
+vllm serve rednote-hilab/dots.ocr --trust-remote-code --async-scheduling --gpu-memory-utilization 0.95
 
-# launch vllm server
-CUDA_VISIBLE_DEVICES=0 vllm serve ${hf_model_path} --tensor-parallel-size 1 --gpu-memory-utilization 0.95  --chat-template-content-format string --served-model-name model --trust-remote-code
-
-# If you get a ModuleNotFoundError: No module named 'DotsOCR', please check the note above on the saved model directory name.
-
-# vllm api demo
+# vLLM API Demo
+# See dots_ocr/model/inference.py for details on parameter and prompt settings 
+# that help achieve the best output quality.
 python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en
 ```
 
