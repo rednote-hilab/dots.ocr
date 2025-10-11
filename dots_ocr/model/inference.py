@@ -7,6 +7,7 @@ import os
 def inference_with_vllm(
         image,
         prompt, 
+        protocol="http",
         ip="localhost",
         port=8000,
         temperature=0.1,
@@ -15,7 +16,7 @@ def inference_with_vllm(
         model_name='rednote-hilab/dots.ocr',
         ):
     
-    addr = f"http://{ip}:{port}/v1"
+    addr = f"{protocol}://{ip}:{port}/v1"
     client = OpenAI(api_key="{}".format(os.environ.get("API_KEY", "0")), base_url=addr)
     messages = []
     messages.append(

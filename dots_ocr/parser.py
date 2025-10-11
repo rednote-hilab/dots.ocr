@@ -20,6 +20,7 @@ class DotsOCRParser:
     """
     
     def __init__(self, 
+            protocol='http',
             ip='localhost',
             port=8000,
             model_name='model',
@@ -36,6 +37,7 @@ class DotsOCRParser:
         self.dpi = dpi
 
         # default args for vllm server
+        self.protocol = protocol
         self.ip = ip
         self.port = port
         self.model_name = model_name
@@ -119,6 +121,7 @@ class DotsOCRParser:
             image,
             prompt, 
             model_name=self.model_name,
+            protocol=self.protocol,
             ip=self.ip,
             port=self.port,
             temperature=self.temperature,
@@ -348,6 +351,10 @@ def main():
         help='should give this argument if you want to prompt_grounding_ocr'
     )
     parser.add_argument(
+        "--protocol", type=str, choices=['http', 'https'], default="http",
+        help=""
+    )
+    parser.add_argument(
         "--ip", type=str, default="localhost",
         help=""
     )
@@ -398,6 +405,7 @@ def main():
     args = parser.parse_args()
 
     dots_ocr_parser = DotsOCRParser(
+        protocol=args.protocol,
         ip=args.ip,
         port=args.port,
         model_name=args.model_name,
