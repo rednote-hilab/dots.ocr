@@ -1,0 +1,86 @@
+# ============================================================================
+# ULTIMATE DOTS.OCR - Unified Requirements
+# Combines best components from all forks
+# ============================================================================
+
+# ===== CORE DEPENDENCIES (Base + Original) =====
+transformers==4.54
+torch>=2.0.0
+torchvision
+qwen_vl_utils
+Pillow
+accelerate
+flash-attn==2.8.0.post2
+huggingface_hub
+modelscope
+
+# ===== PDF & DOCUMENT PROCESSING =====
+PyMuPDF  # PDF parsing and text extraction
+pdfplumber  # Alternative PDF parser
+
+# ===== API FRAMEWORKS =====
+# Simple API (am009)
+flask>=3.0.0
+flask-cors>=4.0.0
+
+# Enterprise API (AKCqhzdy)
+fastapi>=0.100.0
+uvicorn[standard]>=0.23.0
+httpx>=0.24.0
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# ===== DATABASE & STORAGE =====
+# PostgreSQL with Vector Support (AKCqhzdy)
+sqlalchemy==2.0.43
+sqlmodel==0.0.25
+asyncpg>=0.28.0
+psycopg[binary]>=3.1.0
+
+# Redis (AKCqhzdy)
+redis>=5.0.0
+
+# Object Storage (AKCqhzdy)
+boto3>=1.28.0
+
+# ===== MONITORING & TRACING (AKCqhzdy) =====
+opentelemetry-api>=1.20.0
+opentelemetry-sdk>=1.20.0
+opentelemetry-exporter-otlp>=1.20.0
+opentelemetry-instrumentation-fastapi>=0.41b0
+opentelemetry-instrumentation-sqlalchemy>=0.41b0
+opentelemetry-instrumentation-openai-v2>=0.41b0
+loguru>=0.7.0
+
+# ===== AI/ML SERVICES =====
+openai>=1.0.0
+tenacity>=9.1.2  # Retry logic with exponential backoff
+
+# ===== UI/DEMO =====
+gradio>=4.0.0
+gradio_image_annotation>=0.3.0
+
+# ===== TRAINING (wjbmattingly) =====
+# Uncomment if you need training capabilities:
+# wandb>=0.15.0  # Weights & Biases for experiment tracking
+# datasets>=2.14.0  # HuggingFace datasets
+# peft>=0.5.0  # LoRA and parameter-efficient fine-tuning
+# bitsandbytes>=0.41.0  # Quantization support
+
+# ===== UTILITIES =====
+greenlet>=2.0.0
+python-dotenv>=1.0.0
+
+# ===== TESTING & DEVELOPMENT =====
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+ruff>=0.0.290
+
+# ===== LAYOUT DETECTION (zihao branch) =====
+# PaddlePaddle for PP-DocLayout (optional, for structured PDFs)
+# Uncomment for GPU:
+# paddlepaddle-gpu>=2.5.0
+# Uncomment for CPU:
+# paddlepaddle>=2.5.0
+
