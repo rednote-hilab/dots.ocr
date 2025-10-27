@@ -23,9 +23,9 @@ class DotsOCRParser:
             protocol='http',
             ip='localhost',
             port=8000,
-            model_name='model',
+            model_name='rednote-hilab/dots.ocr',
             temperature=0.1,
-            top_p=1.0,
+            top_p=0.9,
             max_completion_tokens=16384,
             num_thread=64,
             dpi = 200, 
@@ -363,7 +363,7 @@ def main():
         help=""
     )
     parser.add_argument(
-        "--model_name", type=str, default="model",
+        "--model_name", type=str, default="rednote-hilab/dots.ocr",
         help=""
     )
     parser.add_argument(
@@ -371,7 +371,7 @@ def main():
         help=""
     )
     parser.add_argument(
-        "--top_p", type=float, default=1.0,
+        "--top_p", type=float, default=0.9,
         help=""
     )
     parser.add_argument(
