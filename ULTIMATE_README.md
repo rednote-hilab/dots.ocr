@@ -148,7 +148,38 @@ docker run --name dots-ocr -d \
 
 ---
 
-### Option 4: Training (Fine-tune on Your Data)
+### Option 4: Gradio Demo (Interactive UI)
+
+**Best for:** Testing, visualization, quick document processing
+
+```bash
+# Setup (one-time)
+bash scripts/setup_local.sh
+
+# Start demo server
+bash scripts/start_demo.sh
+
+# Access at: http://0.0.0.0:7860
+```
+
+**Features:**
+- 🎨 Interactive web interface
+- 📊 Real-time GPU memory monitoring with timestamp logging
+- ⏱️ Processing time tracking
+- 🎮 Configurable GPU memory limit (default: 80% = 6.4GB for 8GB cards)
+- 📝 Visual layout analysis output
+- 🔍 Detailed process logs
+
+**GPU Configuration:**
+The demo automatically manages GPU memory:
+- Model loading: ~5.5GB VRAM
+- Peak inference: ~6GB VRAM
+- Memory limit: Adjustable in `demo/demo_simple.py` (line 19)
+- Logs: Saved to `logs/demo_YYYYMMDD_HHMMSS.log` with timestamps
+
+---
+
+### Option 5: Training (Fine-tune on Your Data)
 
 **Best for:** Custom domains, specialized documents, research
 

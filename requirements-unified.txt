@@ -10,7 +10,7 @@ torchvision
 qwen_vl_utils
 Pillow
 accelerate
-flash-attn==2.8.0.post2
+# flash-attn==2.8.0.post2  # Optional: requires CUDA and compilation
 huggingface_hub
 modelscope
 

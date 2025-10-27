@@ -16,6 +16,8 @@ echo "✓ Python version: $python_version"
 if command -v nvidia-smi &> /dev/null; then
     echo "✓ CUDA detected:"
     nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
+    cuda_version=$(nvcc --version 2>&1 | grep "release" | awk '{print $5}' | cut -d',' -f1)
+    echo "✓ CUDA version: $cuda_version"
 else
     echo "⚠️  CUDA not detected (will use CPU - slow!)"
 fi
@@ -38,10 +40,22 @@ echo "This may take 5-10 minutes..."
 # Upgrade pip
 pip install --upgrade pip setuptools wheel
 
-# Install PyTorch
-echo "Installing PyTorch with CUDA 11.8..."
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 \
-  --index-url https://download.pytorch.org/whl/cu118
+# Install PyTorch (detect CUDA version)
+if command -v nvcc &> /dev/null; then
+    cuda_major=$(nvcc --version 2>&1 | grep "release" | awk '{print $5}' | cut -d',' -f1 | cut -d'.' -f1)
+    echo "Installing PyTorch for CUDA $cuda_major..."
+    
+    if [ "$cuda_major" == "12" ]; then
+        # CUDA 12.x
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+    else
+        # CUDA 11.x
+        pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+    fi
+else
+    echo "Installing PyTorch (CPU-only)..."
+    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+fi
 
 # Install other dependencies
 echo "Installing other dependencies..."

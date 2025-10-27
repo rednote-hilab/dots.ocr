@@ -61,7 +61,7 @@ class DotsOCRParser:
 
     def _load_hf_model(self):
         import torch
-        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
+        from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer, AutoImageProcessor
         from qwen_vl_utils import process_vision_info
 
         model_path = "./weights/DotsOCR"
@@ -72,7 +72,50 @@ class DotsOCRParser:
             device_map="auto",
             trust_remote_code=True
         )
-        self.processor = AutoProcessor.from_pretrained(model_path,  trust_remote_code=True,use_fast=True)
+        
+        # Load processor components separately
+        from transformers.models.qwen2_vl import Qwen2VLImageProcessor, Qwen2VLVideoProcessor
+        import json
+        import os
+        
+        tokenizer = AutoTokenizer.from_pretrained(model_path, trust_remote_code=True)
+        image_processor = Qwen2VLImageProcessor.from_pretrained(model_path, trust_remote_code=True)
+        
+        # Load chat_template from model directory
+        chat_template_path = os.path.join(model_path, "chat_template.json")
+        chat_template = None
+        if os.path.exists(chat_template_path):
+            with open(chat_template_path, 'r') as f:
+                chat_template_data = json.load(f)
+                chat_template = chat_template_data.get('chat_template')
+                print(f"✓ Chat template loaded from {chat_template_path}")
+        
+        # Create Qwen2VLVideoProcessor (DotsOCR doesn't use video, but Qwen2_5_VLProcessor requires it)
+        # Use same config as image processor for consistency
+        video_processor = Qwen2VLVideoProcessor(
+            size=image_processor.size,
+            image_mean=image_processor.image_mean,
+            image_std=image_processor.image_std,
+            do_resize=True,
+            do_rescale=True,
+            do_normalize=True,
+            do_convert_rgb=True
+        )
+        
+        # Import DotsVLProcessor class from cached transformers modules
+        import sys
+        cache_dir = os.path.expanduser("~/.cache/huggingface/modules/transformers_modules/DotsOCR")
+        if cache_dir not in sys.path:
+            sys.path.insert(0, cache_dir)
+        from configuration_dots import DotsVLProcessor
+        
+        # Create processor with video_processor and chat_template
+        self.processor = DotsVLProcessor(
+            image_processor=image_processor, 
+            tokenizer=tokenizer,
+            video_processor=video_processor,
+            chat_template=chat_template
+        )
         self.process_vision_info = process_vision_info
 
     def _inference_with_hf(self, image, prompt):

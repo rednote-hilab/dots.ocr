@@ -119,5 +119,33 @@ dmypy.json
 #*.png
 #*.pdf
 temp/
+./temp/
 output/ 
 # playground/
+
+# Logs (keep only recent ones)
+logs/*.log
+!logs/.gitkeep
+
+# Model weights (large files)
+weights/
+*.bin
+*.safetensors
+*.ckpt
+*.pth
+
+# Training artifacts
+training/outputs/
+training/checkpoints/
+training/runs/
+
+# Docker
+docker-compose.override.yml
+
+# Local config
+.env.local
+config.local.yaml
+
+# System files
+nohup.out
+.bash_history
