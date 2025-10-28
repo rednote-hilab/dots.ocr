@@ -163,7 +163,7 @@ class DotsOCRParser:
             image = fetch_image(image, min_pixels=min_pixels, max_pixels=max_pixels)
         else:
             image = fetch_image(origin_image, min_pixels=min_pixels, max_pixels=max_pixels)
-        input_height, input_width = smart_resize(image.height, image.width)
+        input_height, input_width = origin_image.height, origin_image.width
         prompt = self.get_prompt(prompt_mode, bbox, origin_image, image, min_pixels=min_pixels, max_pixels=max_pixels)
         if self.use_hf:
             response = self._inference_with_hf(image, prompt)
