@@ -41,6 +41,7 @@ dots.ocr: Multilingual Document Layout Parsing in a Single Vision-Language Model
 
 
 ## News 
+* ```2025.10.31 ``` 🚀 We release [dots.ocr.base](https://huggingface.co/rednote-hilab/dots.ocr.base), foundation VLM focus on OCR tasks, also the base model of [dots.ocr](https://github.com/rednote-hilab/dots.ocr). Try it out!
 * ```2025.07.30 ``` 🚀 We release [dots.ocr](https://github.com/rednote-hilab/dots.ocr), — a multilingual documents parsing model based on 1.7b llm, with SOTA performance.
 
 
