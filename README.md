@@ -10,6 +10,7 @@ dots.ocr: Multilingual Document Layout Parsing in a Single Vision-Language Model
 
 [![Blog](https://img.shields.io/badge/Blog-View_on_GitHub-333.svg?logo=github)](https://github.com/rednote-hilab/dots.ocr/blob/master/assets/blog.md)
 [![HuggingFace](https://img.shields.io/badge/HuggingFace%20Weights-black.svg?logo=HuggingFace)](https://huggingface.co/rednote-hilab/dots.ocr)
+[![Arxiv](https://img.shields.io/badge/arXiv-Paper-B31B1B.svg?logo=arxiv)](https://arxiv.org/abs/2512.02498)
 
 
 <div align="center">
@@ -1199,13 +1200,13 @@ python demo/demo_gradio_annotion.py
 <img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/grounding.png" alt="grounding.png" border="0" />
 
 
-## Acknowledgments
+# Acknowledgments
 We would like to thank [Qwen2.5-VL](https://github.com/QwenLM/Qwen2.5-VL), [aimv2](https://github.com/apple/ml-aim), [MonkeyOCR](https://github.com/Yuliang-Liu/MonkeyOCR), 
 [OmniDocBench](https://github.com/opendatalab/OmniDocBench), [PyMuPDF](https://github.com/pymupdf/PyMuPDF), for providing code and models. 
 
 We also thank [DocLayNet](https://github.com/DS4SD/DocLayNet), [M6Doc](https://github.com/HCIILAB/M6Doc), [CDLA](https://github.com/buptlihang/CDLA), [D4LA](https://github.com/AlibabaResearch/AdvancedLiterateMachinery) for providing valuable datasets. 
 
-## Limitation & Future Work
+# Limitation & Future Work
 
 - **Complex Document Elements:**
   - **Table&Formula**: dots.ocr is not yet perfect for high-complexity tables and formula extraction.
@@ -1219,3 +1220,17 @@ We also thank [DocLayNet](https://github.com/DS4SD/DocLayNet), [M6Doc](https://g
 
 We are committed to achieving more accurate table and formula parsing, as well as enhancing the model's OCR capabilities for broader generalization, all while aiming for **a more powerful, more efficient model**. Furthermore, we are actively considering the development of **a more general-purpose perception model** based on Vision-Language Models (VLMs), which would integrate general detection, image captioning, and OCR tasks into a unified framework. **Parsing the content of the pictures in the documents** is also a key priority for our future work.
 We believe that collaboration is the key to tackling these exciting challenges. If you are passionate about advancing the frontiers of document intelligence and are interested in contributing to these future endeavors, we would love to hear from you. Please reach out to us via email at: [yanqing4@xiaohongshu.com].
+
+# Citation
+
+```BibTeX
+@misc{li2025dotsocrmultilingualdocumentlayout,
+      title={dots.ocr: Multilingual Document Layout Parsing in a Single Vision-Language Model}, 
+      author={Yumeng Li and Guang Yang and Hao Liu and Bowen Wang and Colin Zhang},
+      year={2025},
+      eprint={2512.02498},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2512.02498}, 
+}
+```
