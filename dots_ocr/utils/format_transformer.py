@@ -132,8 +132,9 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
     
-    # Remove leading and trailing whitespace
-    text = text.strip()
+    # Remove trailing whitespace only. Preserve leading spaces to keep indentation
+    # for nested lists and code blocks intact (e.g., multi-level Markdown lists).
+    text = text.rstrip()
     
     # Replace multiple consecutive whitespace characters with a single space
     if text[:2] == '`$' and text[-2:] == '$`':
