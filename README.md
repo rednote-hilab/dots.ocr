@@ -1030,7 +1030,7 @@ We highly recommend using vLLM for deployment and inference. All of our evaluati
 
 ```shell
 # Launch vLLM model server
-vllm serve rednote-hilab/dots.ocr --trust-remote-code --async-scheduling --gpu-memory-utilization 0.95
+vllm serve rednote-hilab/dots.ocr --trust-remote-code --gpu-memory-utilization 0.95
 
 # vLLM API Demo
 # See dots_ocr/model/inference.py for details on parameter and prompt settings 
