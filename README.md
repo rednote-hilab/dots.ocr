@@ -560,18 +560,18 @@ CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5 --tensor-parallel-s
 CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5-svg --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
 
 # vLLM API Demo
-# See dots_ocr/model/inference.py for details on parameter and prompt settings 
+# See dots_ocr/model/inference.py and dots_ocr/utils/prompts.py for details on parameter and prompt settings 
 # that help achieve the best output quality.
 ## document parsing
-python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en
+python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en 
 ## web parsing 
-
+python3 ./demo/demo_vllm.py --prompt_mode prompt_web_parsing --image_path ./assets/showcase_dots_ocr_1_5/origin/webpage_1.png
 ## scene spoting
-
+python3 ./demo/demo_vllm.py --prompt_mode prompt_scene_spotting --image_path ./assets/showcase_dots_ocr_1_5/origin/scene_1.jpg
 ## image parsing with svg code
-
+python3 ./demo/demo_vllm_svg.py --prompt_mode prompt_image_to_svg 
 ## general qa
-
+python3 ./demo/demo_vllm_general.py
 ```
 
 ### Hugginface inference
