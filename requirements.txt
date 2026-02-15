@@ -7,5 +7,6 @@ qwen_vl_utils
 transformers==4.51.3
 huggingface_hub
 modelscope
-flash-attn==2.8.0.post2
+# flash-attn==2.8.0.post2  # to speed up inference need flash-attn
 accelerate
+cairosvg

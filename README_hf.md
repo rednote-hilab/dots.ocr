@@ -1,3 +1,22 @@
+---
+license: mit
+library_name: dots_ocr_1_5
+pipeline_tag: image-text-to-text
+tags:
+- image-to-text
+- ocr
+- document-parse
+- layout
+- table
+- formula
+- transformers
+- custom_code
+language:
+- en
+- zh
+- multilingual
+---
+
 <div align="center">
 
 <p align="center">
@@ -5,18 +24,16 @@
 <p>
 
 <h1 align="center">
-dots.ocr
+dots.ocr-1.5: Recognize Any Human Scripts and Symbols
 </h1>
 
 [![HuggingFace](https://img.shields.io/badge/HuggingFace%20Weights-black.svg?logo=HuggingFace)](https://huggingface.co/rednote-hilab/dots.ocr-1.5)
-[![Arxiv](https://img.shields.io/badge/arXiv-Paper-B31B1B.svg?logo=arxiv)](https://arxiv.org/abs/2512.02498)
 
 
 <div align="center">
   <a href="https://dotsocr.xiaohongshu.com" target="_blank" rel="noopener noreferrer"><strong>🖥️ Live Demo</strong></a> | 
   <a href="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/wechat.jpg" target="_blank" rel="noopener noreferrer"><strong>💬 WeChat</strong></a> | 
-  <a href="https://www.xiaohongshu.com/user/profile/683ffe42000000001d021a4c" target="_blank" rel="noopener noreferrer"><strong>📕 rednote</strong></a> | 
-  <a href="https://x.com/rednotehilab" target="_blank" rel="noopener noreferrer"><strong>🐦 X</strong></a>
+  <a href="https://www.xiaohongshu.com/user/profile/683ffe42000000001d021a4c" target="_blank" rel="noopener noreferrer"><strong>📕 rednote</strong></a>
 </div>
 
 </div>
@@ -25,14 +42,11 @@ dots.ocr
 
 ## Introduction
 
-**dots.ocr** Designed for universal accessibility, it possesses the capability to recognize virtually any human script. Beyond achieving state-of-the-art (SOTA) performance in standard multilingual document parsing among models of comparable size, dots.ocr-1.5 excels at converting structured graphics (e.g., charts and diagrams) directly into SVG code, parsing web screens and spotting scene text. 
+We present **dots.ocr-1.5**, a 3B-parameter multimodal model composed of a 1.2B vision encoder and a 1.7B language model. Designed for universal accessibility, it possesses the capability to recognize virtually any human script. Beyond achieving state-of-the-art (SOTA) performance in standard multilingual document parsing among models of comparable size, dots.ocr-1.5 excels at converting structured graphics (e.g., charts and diagrams) directly into SVG code, parsing web screens and spotting scene text. Furthermore, the model demonstrates competitive performance in general OCR, object grounding & counting tasks.
 
-## News 
-* ```2026.2.16 ``` 🚀 We release [dots.ocr-1.5](https://huggingface.co/rednote-hilab/dots.ocr-1.5), trying to recognize any human scripts and symbols, not only the document parsing, but also the image parsing. We are simultaneously releasing [dots.ocr-1.5-svg](https://huggingface.co/rednote-hilab/dots.ocr-1.5-svg), which has more robust performance on image parsing
-* ```2025.10.31 ``` 🚀 We release [dots.ocr.base](https://huggingface.co/rednote-hilab/dots.ocr.base), foundation VLM focus on OCR tasks, also the base model of [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr). Try it out!
-* ```2025.07.30 ``` 🚀 We release [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr), — a multilingual documents parsing model based on 1.7b llm, with SOTA performance.
-
-
+1. **Stronger Document Parsing Performance:** dots.ocr-1.5 maintains SOTA performance among latest OCR models, particularly on **multilingual documents**. Addressing the significant bias inherent in the detection & matching rules of certain benchmarks —which often fail to accurately reflect a model's true capabilities—we adopted an **Elo score** evaluation system. Under this metric, the performance landscape shifts significantly, highlighting the superior robustness of our model compared to conventional rankings.
+2. **Unified Vision-Language Parsing**: Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate dense human knowledge, akin to natural language. dots.ocr-1.5 unifies the interpretation of these elements by parsing them directly into SVG code. We have validated the effectiveness of this approach, demonstrating impressive results in structural and semantic recognition.
+3. **Broader and More General Capabilities**: Compared to dots.ocr, dots.ocr-1.5 supports a significantly wider array of tasks. It extends beyond standard OCR to handle web screen parsing, scene text spotting, object grounding & counting, and other general OCR QA tasks.
 
 
 ## Evaluation
@@ -576,30 +590,22 @@ pip install -e .
 > 💡**Note:** Please use a directory name without periods (e.g., `DotsOCR_1_5` instead of `dots.ocr-1.5`) for the model save path. This is a temporary workaround pending our integration with Transformers.
 ```shell
 python3 tools/download_model.py
-
-# with modelscope
-python3 tools/download_model.py --type modelscope
 ```
 
 
 ## 2. Deployment
 ### vLLM inference
-We highly recommend using vLLM for deployment and inference. All of our evaluations results are based on vLLM 0.9.1 via out-of-tree model registration. **Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM with verified performance** and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
-
-> **Note:**
-> - We found a little bit performance drop when using vLLM 0.11.0. We are working on a fix.
+We highly recommend using vllm for deployment and inference. 
 
 ```shell
-# Launch vLLM model server
+# launch vllm server
 ## dots.ocr-1.5
 CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5 --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
 
 ## dots.ocr-1.5-svg
 CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5-svg --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
 
-# vLLM API Demo
-# See dots_ocr/model/inference.py for details on parameter and prompt settings 
-# that help achieve the best output quality.
+# vllm api demo
 ## document parsing
 python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en
 ## web parsing 
@@ -700,10 +706,6 @@ print(output_text)
 
 </details>
 
-### Hugginface inference with CPU
-Please refer to [CPU inference](https://github.com/rednote-hilab/dots.ocr/issues/1#issuecomment-3148962536)
-
-
 ## 3. Document Parse
 **Based on vLLM server**, you can parse an image or a pdf file using the following commands:
 ```bash
@@ -722,9 +724,6 @@ python3 dots_ocr/parser.py demo/demo_image1.jpg --prompt prompt_ocr
 
 
 ```
-**Based on Transformers**, you can parse an image or a pdf file using the same commands above, just add `--use_hf true`. 
-
-> Notice: transformers is slower than vllm, if you want to use demo/* with transformers，just add `use_hf=True` in `DotsOCRParser(..,use_hf=True)`
 
 <details>
 <summary><b>Output Results</b></summary>
@@ -735,7 +734,6 @@ python3 dots_ocr/parser.py demo/demo_image1.jpg --prompt prompt_ocr
 3.  **Layout Visualization** (`demo_image1.jpg`): The original image with the detected layout bounding boxes drawn on it.
 
 </details>
-
 
 ## 4. Demo
 Have fun with the [live demo](https://dotsocr.xiaohongshu.com/).
@@ -770,25 +768,11 @@ Have fun with the [live demo](https://dotsocr.xiaohongshu.com/).
 <img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/scene_2.png" alt="scene_2.png" border="0" />
 
 
-# Limitation & Future Work
+
+## Limitation & Future Work
 
 - **Complex Document Elements:**
   - **Table&Formula**: The extraction of complex tables and mathematical formulas persists as a difficult task given the model's compact architecture.
   - **Picture**: We have adopted an SVG code representation for parsing structured graphics; however, the performance has yet to achieve the desired level of robustness.
 
 - **Parsing Failures:** While we have reduced the rate of parsing failures compared to the previous version, these issues may still occur occasionally. We remain committed to further resolving these edge cases in future updates. 
-
-
-# Citation
-
-```BibTeX
-@misc{li2025dotsocrmultilingualdocumentlayout,
-      title={dots.ocr: Multilingual Document Layout Parsing in a Single Vision-Language Model}, 
-      author={Yumeng Li and Guang Yang and Hao Liu and Bowen Wang and Colin Zhang},
-      year={2025},
-      eprint={2512.02498},
-      archivePrefix={arXiv},
-      primaryClass={cs.CV},
-      url={https://arxiv.org/abs/2512.02498}, 
-}
-```
