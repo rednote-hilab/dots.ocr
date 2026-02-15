@@ -10,7 +10,7 @@ from dots_ocr.model.inference import inference_with_vllm
 parser = argparse.ArgumentParser()
 parser.add_argument("--ip", type=str, default="localhost")
 parser.add_argument("--port", type=str, default="8000")
-parser.add_argument("--model_name", type=str, default="rednote-hilab/dots.ocr")
+parser.add_argument("--model_name", type=str, default="rednote-hilab/dots.ocr-1.5")
 parser.add_argument("--custom_prompt", type=str, default="Please describe the content of this image.")
 
 args = parser.parse_args()
