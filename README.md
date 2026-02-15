@@ -752,22 +752,22 @@ Have fun with the [live demo](https://dotsocr.xiaohongshu.com/).
 
 
 ### Examples for image parsing
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/svg_1.png" alt="svg_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/svg_2.png" alt="svg_2.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/svg_4.png" alt="svg_4.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/svg_5.png" alt="svg_5.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/svg_6.png" alt="svg_6.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_1.png" alt="svg_1.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_2.png" alt="svg_2.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_4.png" alt="svg_4.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_5.png" alt="svg_5.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_6.png" alt="svg_6.png" border="0" />
 
 > **Note:**
 > - Inferenced by dots.ocr-1.5-svg
 
 ### Example for web parsing
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/webpage_1.png" alt="webpage_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/webpage_2.png" alt="webpage_2.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/webpage_1.png" alt="webpage_1.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/webpage_2.png" alt="webpage_2.png" border="0" />
 
 ### Examples for scene spotting
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/scene_1.png" alt="scene_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/scene_2.png" alt="scene_2.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/scene_1.png" alt="scene_1.png" border="0" />
+<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/scene_2.png" alt="scene_2.png" border="0" />
 
 
 # Limitation & Future Work
