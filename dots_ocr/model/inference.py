@@ -14,11 +14,14 @@ def inference_with_vllm(
         top_p=0.9,
         max_completion_tokens=32768,
         model_name='rednote-hilab/dots.ocr',
+        system_prompt=None,
         ):
     
     addr = f"{protocol}://{ip}:{port}/v1"
     client = OpenAI(api_key="{}".format(os.environ.get("API_KEY", "0")), base_url=addr)
     messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
     messages.append(
         {
             "role": "user",
