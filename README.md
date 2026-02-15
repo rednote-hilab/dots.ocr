@@ -98,46 +98,10 @@ dots.ocr
 
 
 #### 1.2 olmOCR-bench
-<!DOCTYPE html>
-<html lang="zh">
-<head>
-<meta charset="UTF-8">
-<style>
-    table {
-        width: 100%;
-        border-collapse: collapse;
-        font-family: Arial, sans-serif;
-        font-size: 14px;
-        color: #333;
-    }
-    th, td {
-        border: 1px solid #e0e0e0;
-        padding: 12px 8px;
-        text-align: left;
-    }
-    th {
-        background-color: #fafafa;
-        font-weight: normal;
-        vertical-align: top;
-        line-height: 1.4;
-    }
-    tr:nth-child(even) {
-        background-color: #ffffff;
-    }
-    tr:hover {
-        background-color: #f5f5f5;
-    }
-    .bold-row {
-        font-weight: bold;
-    }
-</style>
-</head>
-<body>
-
 <table>
     <thead>
         <tr>
-            <th></th>
+            <th>Model</th>
             <th>ArXiv</th>
             <th>Old scans math</th>
             <th>Tables</th>
@@ -271,7 +235,7 @@ dots.ocr
             <td>79.1% ± 1.0%</td>
         </tr>
         <tr>
-            <td class="bold-row">dots.ocr-1.5</td>
+            <td><strong>dots.ocr-1.5</strong></td>
             <td><strong>85.9</strong></td>
             <td><strong>85.5</strong></td>
             <td><strong>90.7</strong></td>
@@ -285,8 +249,6 @@ dots.ocr
     </tbody>
 </table>
 
-</body>
-</html>
 
 > **Note:**
 > - The metrics are from [olmocr](https://github.com/allenai/olmocr), and our own internal evaluations.
