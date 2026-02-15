@@ -28,7 +28,7 @@ dots.ocr
 **dots.ocr** Designed for universal accessibility, it possesses the capability to recognize virtually any human script. Beyond achieving state-of-the-art (SOTA) performance in standard multilingual document parsing among models of comparable size, dots.ocr-1.5 excels at converting structured graphics (e.g., charts and diagrams) directly into SVG code, parsing web screens and spotting scene text. 
 
 ## News 
-* ```2026.2.16 ``` 🚀 We release [dots.ocr-1.5](https://huggingface.co/rednote-hilab/dots.ocr-1.5), trying to recognize any human scripts and symbols, not only the document parsing, but also the image parsing. We are simultaneously releasing [dots.ocr-1.5-svg](https://huggingface.co/rednote-hilab/dots.ocr-1.5-svg), which has more robust performance on image parsing
+* ```2026.2.16 ``` 🚀 We release [dots.ocr-1.5](https://huggingface.co/rednote-hilab/dots.ocr-1.5),  designed to recognize all human scripts and symbols. This model extends beyond standard document parsing to include comprehensive image parsing. We are simultaneously releasing [dots.ocr-1.5-svg](https://huggingface.co/rednote-hilab/dots.ocr-1.5-svg), which offers more robust performance for image parsing tasks.
 * ```2025.10.31 ``` 🚀 We release [dots.ocr.base](https://huggingface.co/rednote-hilab/dots.ocr.base), foundation VLM focus on OCR tasks, also the base model of [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr). Try it out!
 * ```2025.07.30 ``` 🚀 We release [dots.ocr](https://huggingface.co/rednote-hilab/dots.ocr), — a multilingual documents parsing model based on 1.7b llm, with SOTA performance.
 
