@@ -41,56 +41,56 @@ dots.ocr
 
 #### 1.1 Elo Score of different bench between latest models
 
-<table style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif;">
+<table>
   <thead>
-    <tr style="background-color: #f2f2f2; text-align: left;">
-      <th style="border: 1px solid #ddd; padding: 8px;">models</th>
-      <th style="border: 1px solid #ddd; padding: 8px;">olmOCR-Bench</th>
-      <th style="border: 1px solid #ddd; padding: 8px;">OmniDocBench (v1.5)</th>
-      <th style="border: 1px solid #ddd; padding: 8px;">XDocParse</th>
+    <tr>
+      <th>models</th>
+      <th>olmOCR-Bench</th>
+      <th>OmniDocBench (v1.5)</th>
+      <th>XDocParse</th>
     </tr>
   </thead>
   <tbody>
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">GLM-OCR</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">859.9</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">937.5</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">742.1</td>
+      <td>GLM-OCR</td>
+      <td>859.9</td>
+      <td>937.5</td>
+      <td>742.1</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">PaddleOCR-VL-1.5</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">873.6</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">965.6</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">797.6</td>
+      <td>PaddleOCR-VL-1.5</td>
+      <td>873.6</td>
+      <td>965.6</td>
+      <td>797.6</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">HuanyuanOCR</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">978.9</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">974.4</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">895.9</td>
+      <td>HuanyuanOCR</td>
+      <td>978.9</td>
+      <td>974.4</td>
+      <td>895.9</td>
     </tr>
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">dots.ocr</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1027.4</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">994.7</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1133.4</td>
+      <td>dots.ocr</td>
+      <td>1027.4</td>
+      <td>994.7</td>
+      <td>1133.4</td>
     </tr>
-    <!-- Highlighting dots.ocr-1.5 row -->
-    <tr style="background-color: #e6f7ff; font-weight: bold;">
-      <td style="border: 1px solid #ddd; padding: 8px;">dots.ocr-1.5</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1089.0</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1025.8</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1157.1</td>
+    <!-- Highlighting dots.ocr-1.5 row with bold tags -->
+    <tr>
+      <td><strong>dots.ocr-1.5</strong></td>
+      <td><strong>1089.0</strong></td>
+      <td><strong>1025.8</strong></td>
+      <td><strong>1157.1</strong></td>
     </tr>
     <tr>
-      <td style="border: 1px solid #ddd; padding: 8px;">Gemini 3 Pro</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1171.2</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1102.1</td>
-      <td style="border: 1px solid #ddd; padding: 8px;">1273.9</td>
+      <td>Gemini 3 Pro</td>
+      <td>1171.2</td>
+      <td>1102.1</td>
+      <td>1273.9</td>
     </tr>
-
   </tbody>
 </table>
+
 
 > **Notes:** 
 > - Results for Gemini 3 Pro, PaddleOCR-VL-1.5, and GLM-OCR were obtained via APIs, while HuanyuanOCR results were generated using local inference.
@@ -232,7 +232,7 @@ dots.ocr
             <td>82.4</td>
             <td>81.2</td>
             <td>99.5</td>
-            <td>79.1% ± 1.0%</td>
+            <td>79.1±1.0</td>
         </tr>
         <tr>
             <td><strong>dots.ocr-1.5</strong></td>
@@ -244,7 +244,7 @@ dots.ocr
             <td><strong>85.3</strong></td>
             <td>81.6</td>
             <td>99.7</td>
-            <td><strong>83.9% ± 0.9</strong></td>
+            <td><strong>83.9±0.9</strong></td>
         </tr>
     </tbody>
 </table>
