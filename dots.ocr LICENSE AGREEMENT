@@ -1,12 +1,12 @@
-dots.ocr LICENSE AGREEMENT
+dots.mocr LICENSE AGREEMENT
 
 Effective Date: [ August 8, 2025]
 
 Copyright Holder: [Xingyin Information Technology (Shanghai) Co., Ltd]
 
-This License Agreement (“Agreement”) governs Your use, reproduction, modification, and distribution of dots.ocr (the "Model Materials"). This Agreement is designed to maximize the openness and use of the Model Materials while addressing the unique legal, ethical, and technical challenges posed by large language models.
+This License Agreement (“Agreement”) governs Your use, reproduction, modification, and distribution of dots.mocr (the "Model Materials"). This Agreement is designed to maximize the openness and use of the Model Materials while addressing the unique legal, ethical, and technical challenges posed by large language models.
 
-WHEREAS, Licensor has developed the dots.ocr document parsing model and intends to distribute the Model Materials under an open‑source framework;
+WHEREAS, Licensor has developed the dots.mocr document parsing model and intends to distribute the Model Materials under an open‑source framework;
 WHEREAS, traditional open-source licenses (e.g., the MIT License) may not fully address the complexity inherent complexities of document parsing models, namely their multiple components (code, weights, training data), potential ethical risks, data‑governance issues, and intellectual‑property and liability questions regarding AI‑generated content;
 WHEREAS, Licensor seeks to provide a legal framework that ensures maximum access to and use of the Model Materials while clearly defining the rights, obligations, and liabilities of Licensee;
 
@@ -24,7 +24,7 @@ Purpose: To define key terms used in this Agreement, particularly "Model Materia
         (b) all associated preprocessing, training, inference, and fine‑tuning code;
         (c) training datasets and evaluation scripts (or their detailed descriptions and access mechanisms); and
         (d) any accompanying documentation, metadata, and tools.
-The above Model Materials shall be subject to the content published on the Licensor’s website or GitHub repository at https://github.com/rednote-hilab/dots.ocr.
+The above Model Materials shall be subject to the content published on the Licensor’s website or GitHub repository at https://github.com/rednote-hilab/dots.mocr.
 
 1.4 “Outputs” shall mean any content generated through the use of the Model Materials, such as text, tables, code,layout information, and formulas extracted from documents.
 
@@ -63,7 +63,7 @@ Purpose: To grant broad, permissive rights to the Licensee for the Model Materia
 If Licensee institutes patent litigation against any entity (including a cross-claim or counterclaim in a lawsuit) alleging that the Model Materials constitute direct or contributory patent infringement, then any patent licenses granted under this License for the Model Materials shall terminate as of the date such litigation is asserted or filed.
 
 4.3   Outputs: The Outputs generated through the use of the Model Materials generally refer to text, tables, layouts, and other content extracted from documents or images. The extracted content itself does not generate new intellectual property rights, and all intellectual property remains with the original authors or copyright holders. The Licensee is responsible for due diligence regarding the legality of the Outputs, particularly where the content extracted by the OCR model may be substantially similar to existing copyrighted works, which could present intellectual property infringement risks. The Licensor assumes no liability for such infringements.
-4.4   Trademarks. Nothing in this License permits Licensee to make use of Licensor’s trademarks, trade names, logos (e.g., “rednote,” “Xiaohongshu,” “dots.ocr”) or to otherwise suggest endorsement or misrepresent the relationship between the parties, unless Licensor’s prior written approval is granted.
+4.4   Trademarks. Nothing in this License permits Licensee to make use of Licensor’s trademarks, trade names, logos (e.g., “rednote,” “Xiaohongshu,” “dots.mocr”) or to otherwise suggest endorsement or misrepresent the relationship between the parties, unless Licensor’s prior written approval is granted.
 
 5. Data Governance, Privacy, and Security
  
@@ -94,7 +94,7 @@ If Licensee institutes patent litigation against any entity (including a cross-c
 
 7.2   Copyright and Notices. When distributing any part of the Model Materials, Licensee must retain all copyright, patent, trademark, and attribution notices included in the Model Materials.
 
-7.3   Attribution. Licensee is encouraged to prominently display the name of Licensor and the Model Materials in any public statements, products, or services that contain the Model Materials (or any derivative works thereof), to promote transparency and community trust. If Licensee distributes modified weights or fine‑tuned models based on the Model Materials, Licensee must prominently display the following statement in the related website or documentation: “Built with dots.ocr.”
+7.3   Attribution. Licensee is encouraged to prominently display the name of Licensor and the Model Materials in any public statements, products, or services that contain the Model Materials (or any derivative works thereof), to promote transparency and community trust. If Licensee distributes modified weights or fine‑tuned models based on the Model Materials, Licensee must prominently display the following statement in the related website or documentation: “Built with dots.mocr.”
 
 8. Governing Law and Dispute Resolution
 

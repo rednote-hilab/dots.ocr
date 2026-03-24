@@ -8,13 +8,13 @@
 dots.ocr
 </h1>
 
-[![HuggingFace](https://img.shields.io/badge/HuggingFace%20Weights-black.svg?logo=HuggingFace)](https://huggingface.co/rednote-hilab/dots.ocr-1.5)
+[![HuggingFace](https://img.shields.io/badge/HuggingFace%20Weights-black.svg?logo=HuggingFace)](https://huggingface.co/rednote-hilab/dots.mocr)
 [![Arxiv](https://img.shields.io/badge/arXiv-Paper-B31B1B.svg?logo=arxiv)](https://arxiv.org/abs/2512.02498)
 
 
 <div align="center">
   <a href="https://dotsocr.xiaohongshu.com" target="_blank" rel="noopener noreferrer"><strong>🖥️ Live Demo</strong></a> | 
-  <a href="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/wechat.jpg" target="_blank" rel="noopener noreferrer"><strong>💬 WeChat</strong></a> | 
+  <a href="assets/wechat.jpg" target="_blank" rel="noopener noreferrer"><strong>💬 WeChat</strong></a> | 
   <a href="https://www.xiaohongshu.com/user/profile/683ffe42000000001d021a4c" target="_blank" rel="noopener noreferrer"><strong>📕 rednote</strong></a> | 
   <a href="https://x.com/rednotehilab" target="_blank" rel="noopener noreferrer"><strong>🐦 X</strong></a>
 </div>
@@ -48,45 +48,59 @@ dots.ocr
       <th>olmOCR-Bench</th>
       <th>OmniDocBench (v1.5)</th>
       <th>XDocParse</th>
+      <th>Average</th>
     </tr>
   </thead>
   <tbody>
     <tr>
+      <td>MonkeyOCR-pro-3B</td>
+      <td>895.0</td>
+      <td>811.3</td>
+      <td>637.1</td>
+      <td>781.1</td>
+    </tr>
+    <tr>
       <td>GLM-OCR</td>
-      <td>859.9</td>
-      <td>937.5</td>
-      <td>742.1</td>
+      <td>884.2</td>
+      <td>972.6</td>
+      <td>820.7</td>
+      <td>892.5</td>
     </tr>
     <tr>
       <td>PaddleOCR-VL-1.5</td>
-      <td>873.6</td>
-      <td>965.6</td>
-      <td>797.6</td>
+      <td>897.3</td>
+      <td>997.9</td>
+      <td>866.4</td>
+      <td>920.5</td>
     </tr>
     <tr>
       <td>HuanyuanOCR</td>
-      <td>978.9</td>
-      <td>974.4</td>
-      <td>895.9</td>
+      <td>997.6</td>
+      <td>1003.9</td>
+      <td>951.1</td>
+      <td>984.2</td>
     </tr>
     <tr>
       <td>dots.ocr</td>
-      <td>1027.4</td>
-      <td>994.7</td>
-      <td>1133.4</td>
+      <td>1041.1</td>
+      <td>1027.2</td>
+      <td>1190.3</td>
+      <td>1086.2</td>
     </tr>
-    <!-- Highlighting dots.ocr-1.5 row with bold tags -->
+    <!-- Highlighting dots.mocr row with bold tags -->
     <tr>
-      <td><strong>dots.ocr-1.5</strong></td>
-      <td><strong>1089.0</strong></td>
-      <td><strong>1025.8</strong></td>
-      <td><strong>1157.1</strong></td>
+      <td><strong>dots.mocr</strong></td>
+      <td><strong>1104.4</strong></td>
+      <td><strong>1059.0</strong></td>
+      <td><strong>1210.7</strong></td>
+      <td><strong>1124.7</strong></td>
     </tr>
     <tr>
       <td>Gemini 3 Pro</td>
-      <td>1171.2</td>
-      <td>1102.1</td>
-      <td>1273.9</td>
+      <td>1180.4</td>
+      <td>1128.0</td>
+      <td>1323.7</td>
+      <td>1210.7</td>
     </tr>
   </tbody>
 </table>
@@ -94,7 +108,7 @@ dots.ocr
 
 > **Notes:** 
 > - Results for Gemini 3 Pro, PaddleOCR-VL-1.5, and GLM-OCR were obtained via APIs, while HuanyuanOCR results were generated using local inference.
-> - The Elo score evaluation was conducted using Gemini 3 Flash. The prompt can be found at: [Elo Score Prompt](https://github.com/rednote-hilab/dots.ocr/blob/master/tools/elo_score_prompt.py). These results are consistent with the findings on [ocrarena](https://www.ocrarena.ai/battle).
+> - The Elo score evaluation was conducted using Gemini 3 Flash. The prompt can be found at: [Elo Score Prompt](tools/elo_score_prompt.py). These results are consistent with the findings on [ocrarena](https://www.ocrarena.ai/battle).
 
 
 #### 1.2 olmOCR-bench
@@ -235,7 +249,7 @@ dots.ocr
             <td>79.1±1.0</td>
         </tr>
         <tr>
-            <td><strong>dots.ocr-1.5</strong></td>
+            <td><strong>dots.mocr</strong></td>
             <td><strong>85.9</strong></td>
             <td><strong>85.5</strong></td>
             <td><strong>90.7</strong></td>
@@ -372,7 +386,7 @@ dots.ocr
       <td>9.29</td>
     </tr>
     <tr>
-      <td><u><strong>dots.ocr-1.5</strong></u></td>
+      <td><u><strong>dots.mocr</strong></u></td>
       <td>3B</td>
       <td><strong>0.031</strong></td>
       <td><strong>0.029</strong></td>
@@ -386,8 +400,8 @@ dots.ocr
 > - Formula and Table metrics for OmniDocBench1.5 are omitted due to their high sensitivity to detection and matching protocols.
 
 
-### 2. Vision-Language Parsing
-Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate dense human knowledge. **dots.ocr-1.5** unifies the interpretation of these elements by parsing them directly into **SVG code**.
+### 2. Structured Graphics Parsing
+Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate dense human knowledge. **dots.mocr** unifies the interpretation of these elements by parsing them directly into **SVG code**.
 
 <table>
   <thead>
@@ -430,7 +444,7 @@ Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate 
       <td>0.839</td>
     </tr>
     <tr>
-      <td style="text-align: left;">dots.ocr-1.5</td>
+      <td style="text-align: left;">dots.mocr</td>
       <td>0.850</td>
       <td>0.923</td>
       <td>0.894</td>
@@ -441,7 +455,7 @@ Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate 
       <td>0.790</td>
     </tr>
     <tr>
-      <td style="text-align: left;"><strong>dots.ocr-1.5-svg</strong></td>
+      <td style="text-align: left;"><strong>dots.mocr-svg</strong></td>
       <td><strong>0.860</strong></td>
       <td><strong>0.931</strong></td>
       <td><strong>0.902</strong></td>
@@ -457,8 +471,8 @@ Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate 
 
 > **Note:**
 > - We use the ISVGEN metric from [UniSVG](https://ryanlijinke.github.io/) to evaluate the parsing result. For benchmarks that do not natively support image parsing, we use the original images as input, and calculate the ISVGEN score between the rendered output and the original image. 
-> - [OCRVerse](https://github.com/DocTron-hub/OCRVerse) results are derived from various code formats (e.g., SVG, Python), whereas results for Gemini 3 Pro and dots.ocr-1.5 are based specifically on SVG code.
-> - Due to the capacity constraints of a 3B-parameter VLM, dots.ocr-1.5 may not excel in all tasks yet like svg. To complement this, we are simultaneously releasing dots.ocr-1.5-svg. We plan to further address these limitations in future updates.
+> - [OCRVerse](https://github.com/DocTron-hub/OCRVerse) results are derived from various code formats (e.g., SVG, Python), whereas results for Gemini 3 Pro and dots.mocr are based specifically on SVG code.
+> - Due to the capacity constraints of a 3B-parameter VLM, dots.mocr may not excel in all tasks yet like svg. To complement this, we are simultaneously releasing dots.mocr-svg. We plan to further address these limitations in future updates.
 
 
 ### 3. General Vision Tasks
@@ -494,7 +508,20 @@ Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate 
             <td>-</td>
         </tr>
         <tr>
-            <td><strong>dots.ocr-1.5</strong></td>
+            <td>Qwen3vl-4b-instruct</td>
+            <td>76.2</td>
+            <td>39.7</td>
+            <td>-</td>
+            <td>80.3</td>
+            <td>95.3</td>
+            <td>-</td>
+            <td>88.1</td>
+            <td>84.1</td>
+            <td>84.9</td>
+            <td>-</td>
+        </tr>
+        <tr>
+            <td><strong>dots.mocr</strong></td>
             <td>77.4</td>
             <td>55.3</td>
             <td>22.85</td>
@@ -513,29 +540,25 @@ Visual languages (e.g., charts, graphics, chemical formulas, logos) encapsulate 
 
 # Quick Start
 ## 1. Installation
-### Install dots.ocr-1.5
+### Install dots.mocr
 ```shell
-conda create -n dots_ocr python=3.12
-conda activate dots_ocr
+conda create -n dots_mocr python=3.12
+conda activate dots_mocr
 
-git clone https://github.com/rednote-hilab/dots.ocr.git
-cd dots.ocr
+git clone https://github.com/rednote-hilab/dots.mocr.git
+cd dots.mocr
 
 # Install pytorch, see https://pytorch.org/get-started/previous-versions/ for your cuda version
-pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+# pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+# install flash-attn==2.8.0.post2 for faster inference
 pip install -e .
 ```
 
 If you have trouble with the installation, try our [Docker Image](https://hub.docker.com/r/rednotehilab/dots.ocr) for an easier setup, and follow these steps:
-```shell
-git clone https://github.com/rednote-hilab/dots.ocr.git
-cd dots.ocr
-pip install -e .
-```
 
 
 ### Download Model Weights
-> 💡**Note:** Please use a directory name without periods (e.g., `DotsOCR_1_5` instead of `dots.ocr-1.5`) for the model save path. This is a temporary workaround pending our integration with Transformers.
+> 💡**Note:** Please use a directory name without periods (e.g., `DotsMOCR` instead of `dots.mocr`) for the model save path. This is a temporary workaround pending our integration with Transformers.
 ```shell
 python3 tools/download_model.py
 
@@ -546,28 +569,25 @@ python3 tools/download_model.py --type modelscope
 
 ## 2. Deployment
 ### vLLM inference
-We highly recommend using vLLM for deployment and inference. All of our evaluations results are based on vLLM 0.9.1 via out-of-tree model registration. **Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM with verified performance** and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
-
-> **Note:**
-> - We found a little bit performance drop when using vLLM 0.11.0. We are working on a fix.
+We highly recommend using vLLM for deployment and inference. **Since vLLM version 0.11.0, Dots OCR has been officially integrated into vLLM with verified performance** and you can use vLLM docker image directly (e.g, `vllm/vllm-openai:v0.11.0`) to deploy the model server.
 
 ```shell
 # Launch vLLM model server
-## dots.ocr-1.5
-CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5 --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
+## dots.mocr
+CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.mocr --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
 
-## dots.ocr-1.5-svg
-CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.ocr-1.5-svg --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
+## dots.mocr-svg
+CUDA_VISIBLE_DEVICES=0 vllm serve rednote-hilab/dots.mocr-svg --tensor-parallel-size 1 --gpu-memory-utilization 0.9 --chat-template-content-format string --served-model-name model --trust-remote-code
 
 # vLLM API Demo
-# See dots_ocr/model/inference.py and dots_ocr/utils/prompts.py for details on parameter and prompt settings 
+# See dots_mocr/model/inference.py and dots_mocr/utils/prompts.py for details on parameter and prompt settings 
 # that help achieve the best output quality.
 ## document parsing
 python3 ./demo/demo_vllm.py --prompt_mode prompt_layout_all_en 
 ## web parsing 
-python3 ./demo/demo_vllm.py --prompt_mode prompt_web_parsing --image_path ./assets/showcase_dots_ocr_1_5/origin/webpage_1.png
+python3 ./demo/demo_vllm.py --prompt_mode prompt_web_parsing --image_path ./assets/showcase/origin/webpage_1.png
 ## scene spoting
-python3 ./demo/demo_vllm.py --prompt_mode prompt_scene_spotting --image_path ./assets/showcase_dots_ocr_1_5/origin/scene_1.jpg
+python3 ./demo/demo_vllm.py --prompt_mode prompt_scene_spotting --image_path ./assets/showcase/origin/scene_1.jpg
 ## image parsing with svg code
 python3 ./demo/demo_vllm_svg.py --prompt_mode prompt_image_to_svg 
 ## general qa
@@ -586,9 +606,9 @@ python3 demo/demo_hf.py
 import torch
 from transformers import AutoModelForCausalLM, AutoProcessor, AutoTokenizer
 from qwen_vl_utils import process_vision_info
-from dots_ocr.utils import dict_promptmode_to_prompt
+from dots_mocr.utils import dict_promptmode_to_prompt
 
-model_path = "./weights/DotsOCR_1_5"
+model_path = "./weights/DotsMOCR"
 model = AutoModelForCausalLM.from_pretrained(
     model_path,
     attn_implementation="flash_attention_2",
@@ -672,21 +692,21 @@ Please refer to [CPU inference](https://github.com/rednote-hilab/dots.ocr/issues
 
 # Parse all layout info, both detection and recognition
 # Parse a single image
-python3 dots_ocr/parser.py demo/demo_image1.jpg
+python3 dots_mocr/parser.py demo/demo_image1.jpg
 # Parse a single PDF
-python3 dots_ocr/parser.py demo/demo_pdf1.pdf  --num_thread 64  # try bigger num_threads for pdf with a large number of pages
+python3 dots_mocr/parser.py demo/demo_pdf1.pdf  --num_thread 64  # try bigger num_threads for pdf with a large number of pages
 
 # Layout detection only
-python3 dots_ocr/parser.py demo/demo_image1.jpg --prompt prompt_layout_only_en
+python3 dots_mocr/parser.py demo/demo_image1.jpg --prompt prompt_layout_only_en
 
 # Parse text only, except Page-header and Page-footer
-python3 dots_ocr/parser.py demo/demo_image1.jpg --prompt prompt_ocr
+python3 dots_mocr/parser.py demo/demo_image1.jpg --prompt prompt_ocr
 
 
 ```
 **Based on Transformers**, you can parse an image or a pdf file using the same commands above, just add `--use_hf true`. 
 
-> Notice: transformers is slower than vllm, if you want to use demo/* with transformers，just add `use_hf=True` in `DotsOCRParser(..,use_hf=True)`
+> Notice: transformers is slower than vllm, if you want to use demo/* with transformers，just add `use_hf=True` in `DotsMOCRParser(..,use_hf=True)`
 
 <details>
 <summary><b>Output Results</b></summary>
@@ -704,32 +724,32 @@ Have fun with the [live demo](https://dotsocr.xiaohongshu.com/).
 
 
 ### Examples for document parsing
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/formula1.png" alt="formula1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/table3.png" alt="table3.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/Tibetan.png" alt="Tibetan.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/tradition_zh.png" alt="tradition_zh.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/nl.png" alt="nl.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/kannada.png" alt="kannada.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase/russian.png" alt="russian.png" border="0" />
+<img src="assets/showcase/result/formula1.png" alt="formula1.png" border="0" />
+<img src="assets/showcase/result/table3.png" alt="table3.png" border="0" />
+<img src="assets/showcase/result/Tibetan.png" alt="Tibetan.png" border="0" />
+<img src="assets/showcase/result/tradition_zh.png" alt="tradition_zh.png" border="0" />
+<img src="assets/showcase/result/nl.png" alt="nl.png" border="0" />
+<img src="assets/showcase/result/kannada.png" alt="kannada.png" border="0" />
+<img src="assets/showcase/result/russian.png" alt="russian.png" border="0" />
 
 
 ### Examples for image parsing
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_1.png" alt="svg_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_2.png" alt="svg_2.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_4.png" alt="svg_4.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_5.png" alt="svg_5.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/svg_6.png" alt="svg_6.png" border="0" />
+<img src="assets/showcase/result/svg_1.png" alt="svg_1.png" border="0" />
+<img src="assets/showcase/result/svg_2.png" alt="svg_2.png" border="0" />
+<img src="assets/showcase/result/svg_4.png" alt="svg_4.png" border="0" />
+<img src="assets/showcase/result/svg_5.png" alt="svg_5.png" border="0" />
+<img src="assets/showcase/result/svg_6.png" alt="svg_6.png" border="0" />
 
 > **Note:**
-> - Inferenced by dots.ocr-1.5-svg
+> - Inferenced by dots.mocr-svg
 
 ### Example for web parsing
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/webpage_1.png" alt="webpage_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/webpage_2.png" alt="webpage_2.png" border="0" />
+<img src="assets/showcase/result/webpage_1.png" alt="webpage_1.png" border="0" />
+<img src="assets/showcase/result/webpage_2.png" alt="webpage_2.png" border="0" />
 
 ### Examples for scene spotting
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/scene_1.png" alt="scene_1.png" border="0" />
-<img src="https://raw.githubusercontent.com/rednote-hilab/dots.ocr/master/assets/showcase_dots_ocr_1_5/result/scene_2.png" alt="scene_2.png" border="0" />
+<img src="assets/showcase/result/scene_1.png" alt="scene_1.png" border="0" />
+<img src="assets/showcase/result/scene_2.png" alt="scene_2.png" border="0" />
 
 
 # Limitation & Future Work
@@ -742,6 +762,18 @@ Have fun with the [live demo](https://dotsocr.xiaohongshu.com/).
 
 
 # Citation
+
+```BibTeX
+@misc{zheng2026multimodalocrparsedocuments,
+      title={Multimodal OCR: Parse Anything from Documents}, 
+      author={Handong Zheng and Yumeng Li and Kaile Zhang and Liang Xin and Guangwei Zhao and Hao Liu and Jiayu Chen and Jie Lou and Jiyu Qiu and Qi Fu and Rui Yang and Shuo Jiang and Weijian Luo and Weijie Su and Weijun Zhang and Xingyu Zhu and Yabin Li and Yiwei ma and Yu Chen and Zhaohui Yu and Guang Yang and Colin Zhang and Lei Zhang and Yuliang Liu and Xiang Bai},
+      year={2026},
+      eprint={2603.13032},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2603.13032}, 
+}
+```
 
 ```BibTeX
 @misc{li2025dotsocrmultilingualdocumentlayout,
